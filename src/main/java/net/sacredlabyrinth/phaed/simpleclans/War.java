@@ -37,13 +37,13 @@ public class War {
             return true;
         }
         if (obj instanceof War) {
-            return clans.equals(((War) obj).clans);
+            return clans.keySet().equals(((War) obj).clans.keySet());
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        return clans.hashCode();
+        return clans.keySet().hashCode();
     }
 }

@@ -129,7 +129,7 @@ public class ProtectionManager {
     }
 
     @SuppressWarnings("UnusedReturnValue")
-    public boolean addWar(@NotNull ClanPlayer requester, Clan requestClan, Clan targetClan) {
+    public boolean addWar(@Nullable ClanPlayer requester, Clan requestClan, Clan targetClan) {
         War war = new War(requestClan, targetClan);
 
         if (wars.containsKey(war)) {

@@ -201,6 +201,9 @@ public class SimpleClans extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (dynamicWarManager != null) {
+            dynamicWarManager.shutdown();
+        }
         if (getSettingsManager().is(PERFORMANCE_SAVE_PERIODICALLY)) {
             getStorageManager().saveModified();
         }

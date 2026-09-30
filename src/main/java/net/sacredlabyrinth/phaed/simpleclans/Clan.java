@@ -42,6 +42,7 @@ public class Clan implements Serializable, Comparable<Clan> {
 
     private static final long serialVersionUID = 1L;
     private static final String WARRING_KEY = "warring";
+    private static final String DYNAMIC_WARRING_KEY = "dynamicWarring";
     private boolean verified;
     private String tag;
     private String colorTag;
@@ -1657,6 +1658,32 @@ public class Clan implements Serializable, Comparable<Clan> {
 
     public void setDynamicWarEnabled(boolean dynamicWarEnabled) {
         flags.put("dynamicWar", dynamicWarEnabled);
+    }
+
+    /**
+     * Tags of the clans this clan is at war with because of a dynamic war.
+     * Persisted so wars left behind by a crash can be cleaned on the next startup.
+     */
+    @NotNull
+    public List<String> getDynamicWarringTags() {
+        return flags.getStringList(DYNAMIC_WARRING_KEY);
+    }
+
+    public void addDynamicWarring(@NotNull String tag) {
+        List<String> tags = flags.getStringList(DYNAMIC_WARRING_KEY);
+        if (!tags.contains(tag)) {
+            tags.add(tag);
+            flags.put(DYNAMIC_WARRING_KEY, tags);
+            SimpleClans.getInstance().getStorageManager().updateClan(this);
+        }
+    }
+
+    public void removeDynamicWarring(@NotNull String tag) {
+        List<String> tags = flags.getStringList(DYNAMIC_WARRING_KEY);
+        if (tags.remove(tag)) {
+            flags.put(DYNAMIC_WARRING_KEY, tags);
+            SimpleClans.getInstance().getStorageManager().updateClan(this);
+        }
     }
 
     /**

@@ -51,8 +51,9 @@ public class PvPOnlyInWar extends SCListener {
         }
 
         if (!attackerClan.isWarring(victimClan)) {
-            if (plugin.getDynamicWarManager().canStart(attackerClan, victimClan)) {
-                plugin.getDynamicWarManager().handleHit(attacker, victim, attackerClan, victimClan, victim.getLocation());
+            // only let the hit through if it actually started a dynamic war
+            if (plugin.getDynamicWarManager().handleHit(attacker, victim, attackerClan, victimClan,
+                    victim.getLocation())) {
                 return;
             }
             ChatBlock.sendMessageKey(attacker, "clans.not.at.war.pvp.denied", victimClan.getName());

@@ -93,6 +93,14 @@ war-and-protection:
         teleport-delay-seconds: 5
         teleport-radius: 30
         teleport-max-attempts: 64
+        # Tempo mínimo entre dois usos de /guerra pelo mesmo jogador
+        teleport-cooldown-seconds: 60
+        announce:
+            # Mensagem de guerra para o servidor inteiro (e webhook do Discord)
+            global: true
+            # Mesma dupla de clãs só gera novo aviso global/webhook depois desse tempo
+            cooldown-seconds: 300
+        # Nesses mundos hits não iniciam guerra (sem mensagem) e /guerra não funciona
         disabled-worlds:
             - spawn
             - arena
