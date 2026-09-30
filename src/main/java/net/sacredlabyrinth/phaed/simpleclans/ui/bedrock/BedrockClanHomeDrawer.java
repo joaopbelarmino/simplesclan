@@ -71,7 +71,8 @@ public final class BedrockClanHomeDrawer {
         if (invite != null) {
             builder.button(BedrockText.lang("bedrock.home.accept-invite", player, invite.getClan().getName()),
                     BedrockFormIconResolver.ui("textures/ui/confirm"));
-            actions.add(() -> runClanCommand(player, plugin.getSettingsManager().getString(COMMANDS_ACCEPT)));
+            // /accept is a root command, not a /clan subcommand
+            actions.add(() -> player.performCommand(plugin.getSettingsManager().getString(COMMANDS_ACCEPT)));
         }
 
         builder.button(BedrockText.lang("bedrock.home.settings", player),
@@ -529,11 +530,16 @@ public final class BedrockClanHomeDrawer {
                 .button(BedrockText.lang("bedrock.join-requests.deny", player));
 
         builder.validResultHandler(response -> {
-            if (response.clickedButtonId() == 0) {
-                runClanCommand(player, plugin.getSettingsManager().getString(COMMANDS_ACCEPT));
-            } else if (response.clickedButtonId() == 1) {
-                runClanCommand(player, plugin.getSettingsManager().getString(COMMANDS_DENY));
+            int button = response.clickedButtonId();
+            if (button != 0 && button != 1) {
+                return;
             }
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                ClanPlayer leader = plugin.getClanManager().getClanPlayer(player);
+                if (leader == null || !plugin.getRequestManager().decideJoinRequest(leader, request.getTarget(), button == 0)) {
+                    player.sendMessage(lang("bedrock.gui.stale", player));
+                }
+            });
         });
         sendForm(player, builder);
     }

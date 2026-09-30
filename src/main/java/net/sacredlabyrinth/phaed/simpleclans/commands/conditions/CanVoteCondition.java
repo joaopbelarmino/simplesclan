@@ -26,13 +26,14 @@ public class CanVoteCondition extends AbstractCommandCondition {
         ClanPlayer cp = clanManager.getCreateClanPlayer(player.getUniqueId());
         Clan clan = cp.getClan();
         if (clan != null) {
-            if (!requestManager.hasRequest(clan.getTag())) {
+            boolean clanRequest = requestManager.hasRequest(clan.getTag());
+            if (!clanRequest && !requestManager.hasJoinRequests(clan)) {
                 throw new ConditionFailedException(lang("nothing.to.vote", player));
             }
             if (!clan.isLeader(player)) {
                 throw new ConditionFailedException(RED + lang("no.leader.permissions", player));
             }
-            if (cp.getVote() != null) {
+            if (clanRequest && cp.getVote() != null) {
                 throw new ConditionFailedException(RED + lang("you.have.already.voted", player));
             }
         } else {

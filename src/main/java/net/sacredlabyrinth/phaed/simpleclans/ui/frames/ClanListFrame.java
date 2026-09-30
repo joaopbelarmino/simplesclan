@@ -17,8 +17,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -63,14 +65,17 @@ public class ClanListFrame extends SCFrame {
 		for (int i = paginator.getMinIndex(); paginator.isValidIndex(i); i++) {
 			Clan clan = clans.get(i);
 			ItemStack banner = clan.getBanner() != null ? clan.getBanner() : XMaterial.BLACK_BANNER.parseItem();
+			List<String> lore = new ArrayList<>(Arrays.asList(lang("gui.clanlist.clan.lore.position", getViewer(),
+							rankingResolver.getRankingNumber(clan)),
+					lang("gui.clanlist.clan.lore.kdr", getViewer(), KDRFormat.format(clan.getTotalKDR())),
+					lang("gui.clanlist.clan.lore.members", getViewer(), clan.getMembers().size())));
+			String actionLore = getActionLore(clan);
+			if (actionLore != null) {
+				lore.add(actionLore);
+			}
 			SCComponent c = new SCComponentImpl(
 					lang("gui.clanlist.clan.title", getViewer(), clan.getColorTag(), clan.getName()),
-					Arrays.asList(lang("gui.clanlist.clan.lore.position", getViewer(),
-							rankingResolver.getRankingNumber(clan)),
-							lang("gui.clanlist.clan.lore.kdr", getViewer(), KDRFormat.format(clan.getTotalKDR())),
-							lang("gui.clanlist.clan.lore.members", getViewer(), clan.getMembers().size()),
-							getActionLore(clan)),
-					banner, slot);
+					lore, banner, slot);
 			c.setLorePermission("simpleclans.anyone.list");
 			setAction(clan, c);
 			add(c);
@@ -78,13 +83,16 @@ public class ClanListFrame extends SCFrame {
 		}
 	}
 
-	@NotNull
+	@Nullable
 	private String getActionLore(@NotNull Clan clan) {
 		ClanPlayer clanPlayer = plugin.getClanManager().getCreateClanPlayer(getViewer().getUniqueId());
 		if (clanPlayer.getClan() == null) {
 			return lang("gui.clanlist.clan.lore.apply", getViewer());
 		}
-		return lang("gui.clanlist.clan.lore.view", getViewer());
+		if (clan.equals(clanPlayer.getClan())) {
+			return lang("gui.clanlist.clan.lore.view", getViewer());
+		}
+		return null;
 	}
 
 	private boolean canShowClan(@NotNull Clan clan) {
@@ -99,7 +107,11 @@ public class ClanListFrame extends SCFrame {
 			component.setListener(ClickType.LEFT, () -> InventoryController.runSubcommand(getViewer(), "apply", false, clan.getTag()));
 			return;
 		}
-		component.setListener(ClickType.LEFT, () -> InventoryDrawer.open(new ClanDetailsFrame(this, getViewer(), clan)));
+		// the details frame is the management panel of the viewer's own clan: its buttons act on the
+		// viewer's clan and it shows the bank balance, so it must not be opened for other clans
+		if (clan.equals(clanPlayer.getClan())) {
+			component.setListener(ClickType.LEFT, () -> InventoryDrawer.open(new ClanDetailsFrame(this, getViewer(), clan)));
+		}
 	}
 
 	private void previousPage() {

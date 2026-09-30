@@ -101,6 +101,7 @@ public class GeneralCommands extends BaseCommand {
     @Subcommand("%apply")
     @CommandPermission("simpleclans.anyone.apply")
     @CommandCompletion("@clans:hide_own")
+    @Conditions("not_banned")
     @Description("{@@command.description.apply}")
     public void apply(Player player, @Name("clan") ClanInput clan) {
         ClanPlayer cp = cm.getCreateClanPlayer(player.getUniqueId());
