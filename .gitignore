@@ -1,0 +1,10 @@
+/target/
+/.idea/
+/bin/
+/.classpath
+/.project
+*.jar
+.settings
+.factorypath
+SimpleClans.iml
+dependency-reduced-pom.xml

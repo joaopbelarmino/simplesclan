@@ -1,0 +1,133 @@
+package net.sacredlabyrinth.phaed.simpleclans.commands.clan;
+
+import co.aikar.commands.BaseCommand;
+import co.aikar.commands.annotation.*;
+import net.sacredlabyrinth.phaed.simpleclans.*;
+import net.sacredlabyrinth.phaed.simpleclans.events.HomeRegroupEvent;
+import net.sacredlabyrinth.phaed.simpleclans.events.PlayerHomeClearEvent;
+import net.sacredlabyrinth.phaed.simpleclans.events.PlayerHomeSetEvent;
+import net.sacredlabyrinth.phaed.simpleclans.managers.ClanManager;
+import net.sacredlabyrinth.phaed.simpleclans.managers.PermissionsManager;
+import net.sacredlabyrinth.phaed.simpleclans.managers.ProtectionManager;
+import net.sacredlabyrinth.phaed.simpleclans.managers.SettingsManager;
+import net.sacredlabyrinth.phaed.simpleclans.utils.VanishUtils;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.entity.Player;
+
+import static net.sacredlabyrinth.phaed.simpleclans.SimpleClans.lang;
+import static net.sacredlabyrinth.phaed.simpleclans.managers.SettingsManager.ConfigField.*;
+import static org.bukkit.ChatColor.*;
+
+@CommandAlias("%clan")
+@Conditions("%basic_conditions|verified")
+public class HomeCommands extends BaseCommand {
+    @Dependency
+    private SimpleClans plugin;
+    @Dependency
+    private PermissionsManager permissions;
+    @Dependency
+    private SettingsManager settings;
+    @Dependency
+    private ProtectionManager protection;
+    @Dependency
+    private ClanManager cm;
+
+    @Subcommand("%regroup %me")
+    @CommandPermission("simpleclans.leader.regroup.me")
+    @Conditions("rank:name=REGROUP_ME")
+    @Description("{@@command.description.regroup.me}")
+    public void regroupMe(Player player, ClanPlayer cp, Clan clan) {
+        if (!settings.is(ALLOW_REGROUP)) {
+            ChatBlock.sendMessage(player, RED + lang("insufficient.permissions", player));
+            return;
+        }
+
+        processRegroup(player, cp, clan, player.getLocation());
+    }
+
+    private void processRegroup(Player player, ClanPlayer cp, Clan clan, Location location) {
+        HomeRegroupEvent homeRegroupEvent = new HomeRegroupEvent(clan, cp, VanishUtils.getNonVanished(player, clan), location);
+        plugin.getServer().getPluginManager().callEvent(homeRegroupEvent);
+
+        if (homeRegroupEvent.isCancelled() || !cm.purchaseHomeRegroup(player)) {
+            return;
+        }
+
+        plugin.getTeleportManager().teleport(player, clan, location);
+    }
+
+    @Subcommand("%regroup %home")
+    @CommandPermission("simpleclans.leader.regroup.home")
+    @Conditions("rank:name=REGROUP_HOME")
+    @Description("{@@command.description.regroup.home}")
+    public void regroupHome(Player player, ClanPlayer cp, @Conditions("can_teleport") Clan clan) {
+        if (!settings.is(ALLOW_REGROUP)) {
+            ChatBlock.sendMessage(player, RED + lang("insufficient.permissions", player));
+            return;
+        }
+        Location location = clan.getHomeLocation();
+        processRegroup(player, cp, clan, location);
+    }
+
+    @Subcommand("%home")
+    @CommandPermission("simpleclans.member.home")
+    @Conditions("rank:name=HOME_TP")
+    @Description("{@@command.description.home.tp}")
+    public void teleport(Player player, @Conditions("can_teleport") Clan clan, ClanPlayer cp) {
+        Location homeLocation = clan.getHomeLocation();
+
+        if (cm.purchaseHomeTeleport(player)) {
+            plugin.getTeleportManager().addPlayer(player, homeLocation, clan.getName());
+        }
+    }
+
+    @Subcommand("%home %clear")
+    @CommandPermission("simpleclans.leader.home-set")
+    @Conditions("rank:name=HOME_SET")
+    @Description("{@@command.description.home.clear}")
+    public void clear(Player player, ClanPlayer cp, Clan clan) {
+        if (settings.is(CLAN_HOMEBASE_CAN_BE_SET_ONLY_ONCE) && clan.getHomeLocation() != null &&
+                !permissions.has(player, "simpleclans.mod.home")) {
+            ChatBlock.sendMessage(player, RED + lang("home.base.only.once", player));
+            return;
+        }
+
+        PlayerHomeClearEvent event = new PlayerHomeClearEvent(clan, cp);
+        Bukkit.getPluginManager().callEvent(event);
+        if (event.isCancelled()) {
+            return;
+        }
+
+        clan.setHomeLocation(null);
+        ChatBlock.sendMessage(player, AQUA + lang("hombase.cleared", player));
+    }
+
+    @Subcommand("%home %set")
+    @Conditions("rank:name=HOME_SET")
+    @CommandPermission("simpleclans.leader.home-set")
+    @Description("{@@command.description.home.set}")
+    public void set(Player player, ClanPlayer cp, Clan clan) {
+        if (settings.is(CLAN_HOMEBASE_CAN_BE_SET_ONLY_ONCE) && clan.getHomeLocation() != null &&
+                !permissions.has(player, "simpleclans.mod.home")) {
+            ChatBlock.sendMessage(player, RED + lang("home.base.only.once", player));
+            return;
+        }
+        if (settings.is(LAND_SET_BASE_ONLY_IN_LAND)) {
+            if (!protection.isOwner(player, player.getLocation())) {
+                ChatBlock.sendMessageKey(player, "you.can.only.set.base.in.your.land");
+                return;
+            }
+        }
+        PlayerHomeSetEvent homeSetEvent = new PlayerHomeSetEvent(clan, cp, player.getLocation());
+        plugin.getServer().getPluginManager().callEvent(homeSetEvent);
+
+        if (homeSetEvent.isCancelled() || !cm.purchaseHomeTeleportSet(player)) {
+            return;
+        }
+
+        clan.setHomeLocation(player.getLocation());
+        ChatBlock.sendMessage(player, AQUA + lang("hombase.set", player, YELLOW +
+                Helper.toLocationString(player.getLocation())));
+    }
+}

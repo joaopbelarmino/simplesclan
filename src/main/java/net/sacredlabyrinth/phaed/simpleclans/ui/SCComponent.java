@@ -1,0 +1,104 @@
+package net.sacredlabyrinth.phaed.simpleclans.ui;
+
+import net.sacredlabyrinth.phaed.simpleclans.RankPermission;
+import org.bukkit.event.inventory.ClickType;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Class that represents a button
+ *
+ * @author RoinujNosde
+ *
+ */
+public abstract class SCComponent {
+
+	private final HashMap<ClickType, Runnable> listeners = new HashMap<>();
+	private final HashMap<ClickType, Object> permissions = new HashMap<>();
+	private final Set<ClickType> verified = new HashSet<>();
+	private final Set<ClickType> confirmationRequired = new HashSet<>();
+	private @Nullable Object lorePermission;
+
+	@NotNull
+	public abstract ItemStack getItem();
+
+	public abstract int getSlot();
+
+	@Nullable
+	public ItemMeta getItemMeta() {
+		return getItem().getItemMeta();
+	}
+
+	public void setItemMeta(@NotNull ItemMeta itemMeta) {
+		getItem().setItemMeta(itemMeta);
+	}
+
+	public void setVerifiedOnly(@NotNull ClickType clickType) {
+		verified.add(clickType);
+	}
+
+	public boolean isVerifiedOnly(@NotNull ClickType clickType) {
+		return verified.contains(clickType);
+	}
+
+	public void setLorePermission(@Nullable RankPermission permission) {
+		lorePermission = permission;
+	}
+
+	public void setLorePermission(@Nullable String permission) {
+		lorePermission = permission;
+	}
+
+	@Nullable
+	public Object getLorePermission() {
+		return lorePermission;
+	}
+
+	public void setPermission(@NotNull ClickType click, @Nullable RankPermission permission) {
+		permissions.put(click, permission);
+	}
+
+	public void setPermission(@NotNull ClickType click, @Nullable String permission) {
+		permissions.put(click, permission);
+	}
+
+	@Nullable
+	public Object getPermission(@NotNull ClickType click) {
+		return permissions.get(click);
+	}
+
+	public void setListener(@NotNull ClickType click, @Nullable Runnable listener) {
+		listeners.put(click, listener);
+	}
+
+	@Nullable
+	public Runnable getListener(@NotNull ClickType click) {
+		return listeners.get(click);
+	}
+
+	@NotNull
+	public Set<ClickType> getAvailableClicks() {
+		Set<ClickType> clicks = new HashSet<>();
+		for (Map.Entry<ClickType, Runnable> entry : listeners.entrySet()) {
+			if (entry.getValue() != null) {
+				clicks.add(entry.getKey());
+			}
+		}
+		return clicks;
+	}
+
+	public void setConfirmationRequired(@NotNull ClickType click) {
+		confirmationRequired.add(click);
+	}
+
+	public boolean isConfirmationRequired(@NotNull ClickType click) {
+		return confirmationRequired.contains(click);
+	}
+}
