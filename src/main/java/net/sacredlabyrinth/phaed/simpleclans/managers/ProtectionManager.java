@@ -4,6 +4,7 @@ import net.sacredlabyrinth.phaed.simpleclans.Clan;
 import net.sacredlabyrinth.phaed.simpleclans.ClanPlayer;
 import net.sacredlabyrinth.phaed.simpleclans.SimpleClans;
 import net.sacredlabyrinth.phaed.simpleclans.War;
+import net.sacredlabyrinth.phaed.simpleclans.ranking.WarRecord;
 import net.sacredlabyrinth.phaed.simpleclans.events.WarEndEvent;
 import net.sacredlabyrinth.phaed.simpleclans.events.WarStartEvent;
 import net.sacredlabyrinth.phaed.simpleclans.hooks.protection.Land;
@@ -179,11 +180,21 @@ public class ProtectionManager {
         if (war == null) {
             return;
         }
-        wars.remove(war);
+        boolean tracked = wars.containsKey(war);
+        BukkitTask timeoutTask = wars.remove(war);
+        if (timeoutTask != null) {
+            timeoutTask.cancel();
+        }
         Clan clan1 = war.getClans().get(0);
         Clan clan2 = war.getClans().get(1);
         clan1.removeWarringClan(clan2);
         clan2.removeWarringClan(clan1);
+        if (tracked) {
+            // Recorded here and not in a listener: Bukkit skips listeners of a disabled plugin on shutdown
+            plugin.getStorageManager().insertWar(new WarRecord(clan1.getTag(), clan2.getTag(),
+                    war.getCasualties(clan1), war.getCasualties(clan2), war.getStartedAt(),
+                    System.currentTimeMillis(), reason.name()));
+        }
 
         WarEndEvent event = new WarEndEvent(war, reason);
         Bukkit.getPluginManager().callEvent(event);

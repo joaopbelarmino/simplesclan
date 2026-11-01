@@ -365,6 +365,11 @@ public final class SettingsManager {
         DYNAMIC_WAR_TELEPORT_RADIUS("war-and-protection.dynamic-war.teleport-radius", 30),
         DYNAMIC_WAR_TELEPORT_MAX_ATTEMPTS("war-and-protection.dynamic-war.teleport-max-attempts", 64),
         DYNAMIC_WAR_DISABLED_WORLDS("war-and-protection.dynamic-war.disabled-worlds"),
+        DYNAMIC_WAR_HITS_TO_START("war-and-protection.dynamic-war.hits-to-start", 3),
+        DYNAMIC_WAR_HITS_WINDOW("war-and-protection.dynamic-war.hits-window-seconds", 10),
+        DYNAMIC_WAR_ANNOUNCE_COOLDOWN("war-and-protection.dynamic-war.announce-cooldown-minutes", 10),
+        DYNAMIC_WAR_JOIN_COOLDOWN("war-and-protection.dynamic-war.join-cooldown-seconds", 60),
+        DYNAMIC_WAR_JOIN_DAMAGE_BLOCK("war-and-protection.dynamic-war.join-blocked-after-damage-seconds", 10),
         DYNAMIC_WAR_WEBHOOK_URL("war-and-protection.dynamic-war.webhook-url", ""),
         DYNAMIC_WAR_WEBHOOK_TITLE("war-and-protection.dynamic-war.webhook-embed.title", "Guerra de Clas"),
         DYNAMIC_WAR_WEBHOOK_DESCRIPTION("war-and-protection.dynamic-war.webhook-embed.description",
@@ -373,13 +378,42 @@ public final class SettingsManager {
         DYNAMIC_WAR_WEBHOOK_COLOR("war-and-protection.dynamic-war.webhook-embed.color", "#ff3333"),
         /*
         ================
+        > Clan Ranking Settings
+        ================
+         */
+        CLAN_RANKING_UPDATE_MINUTES("clan-ranking.update-minutes", 5),
+        CLAN_RANKING_WEIGHT_ECONOMY("clan-ranking.weights.economy", 0.30),
+        CLAN_RANKING_WEIGHT_COMBAT("clan-ranking.weights.combat", 0.30),
+        CLAN_RANKING_WEIGHT_WARS("clan-ranking.weights.wars", 0.25),
+        CLAN_RANKING_WEIGHT_ACTIVITY("clan-ranking.weights.activity", 0.10),
+        CLAN_RANKING_WEIGHT_AGE("clan-ranking.weights.age", 0.05),
+        CLAN_RANKING_MIN_MEMBERS("clan-ranking.min-members", 3),
+        CLAN_RANKING_MIN_AGE_DAYS("clan-ranking.min-age-days", 3),
+        CLAN_RANKING_REQUIRE_VERIFIED("clan-ranking.require-verified", true),
+        CLAN_RANKING_INACTIVE_DAYS("clan-ranking.inactive-days", 14),
+        CLAN_RANKING_ECONOMY_MEMBER_MIN_DAYS("clan-ranking.economy.member-min-days", 3),
+        CLAN_RANKING_ECONOMY_MAX_PER_MEMBER("clan-ranking.economy.max-per-member", 500000.0),
+        CLAN_RANKING_ECONOMY_EXCLUDED_PLAYERS("clan-ranking.economy.excluded-players"),
+        CLAN_RANKING_COMBAT_WINDOW_DAYS("clan-ranking.combat.window-days", 30),
+        CLAN_RANKING_COMBAT_PRIOR_WEIGHT("clan-ranking.combat.prior-weight", 10.0),
+        CLAN_RANKING_COMBAT_MAX_KILLS_PER_VICTIM_DAY("clan-ranking.combat.max-kills-per-victim-day", 3),
+        CLAN_RANKING_COMBAT_FULL_KILLS_PER_CLAN_PAIR_DAY("clan-ranking.combat.full-kills-per-clan-pair-day", 10),
+        CLAN_RANKING_COMBAT_EXTRA_KILL_FACTOR("clan-ranking.combat.extra-kill-factor", 0.25),
+        CLAN_RANKING_WARS_WINDOW_DAYS("clan-ranking.wars.window-days", 30),
+        CLAN_RANKING_WARS_HALF_LIFE_DAYS("clan-ranking.wars.half-life-days", 7.0),
+        CLAN_RANKING_WARS_MIN_KILLS_EACH_SIDE("clan-ranking.wars.min-kills-each-side", 3),
+        CLAN_RANKING_WARS_MAX_PER_OPPONENT_WEEK("clan-ranking.wars.max-per-opponent-week", 2),
+        CLAN_RANKING_ACTIVITY_DAYS("clan-ranking.activity.days", 7),
+        CLAN_RANKING_AGE_FULL_DAYS("clan-ranking.age.full-days", 90),
+        /*
+        ================
         > KDR Grinding Prevention Settings
         ================
          *
          */
-        KDR_ENABLE_MAX_KILLS("kdr-grinding-prevention.enable-max-kills", false),
-        KDR_MAX_KILLS_PER_VICTIM("kdr-grinding-prevention.max-kills-per-victim", 10),
-        KDR_ENABLE_KILL_DELAY("kdr-grinding-prevention.enable-kill-delay", false),
+        KDR_ENABLE_MAX_KILLS("kdr-grinding-prevention.enable-max-kills", true),
+        KDR_MAX_KILLS_PER_VICTIM("kdr-grinding-prevention.max-kills-per-victim", 5),
+        KDR_ENABLE_KILL_DELAY("kdr-grinding-prevention.enable-kill-delay", true),
         KDR_DELAY_BETWEEN_KILLS("kdr-grinding-prevention.delay-between-kills", 5),
         /*
         ================
@@ -441,7 +475,7 @@ public final class SettingsManager {
         KILL_WEIGHTS_CIVILIAN("kill-weights.civilian", 0.0),
         KILL_WEIGHTS_NEUTRAL("kill-weights.neutral", 1.0),
         KILL_WEIGHTS_ALLY("kill-weights.ally", -1.0),
-        KILL_WEIGHTS_DENY_SAME_IP_KILLS("kill-weights.deny-same-ip-kills", false),
+        KILL_WEIGHTS_DENY_SAME_IP_KILLS("kill-weights.deny-same-ip-kills", true),
         /*
         ================
         > Clan Settings

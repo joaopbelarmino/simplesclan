@@ -59,6 +59,7 @@ public class SimpleClans extends JavaPlugin {
     private TeleportManager teleportManager;
     private ProtectionManager protectionManager;
     private DynamicWarManager dynamicWarManager;
+    private ClanRankingManager clanRankingManager;
     private ChatManager chatManager;
     private ProxyManager proxyManager;
     private boolean hasUUID;
@@ -116,6 +117,7 @@ public class SimpleClans extends JavaPlugin {
         teleportManager = new TeleportManager();
         protectionManager = new ProtectionManager();
         dynamicWarManager = new DynamicWarManager(this);
+        clanRankingManager = new ClanRankingManager(this);
         protectionManager.registerListeners();
         chatManager = new ChatManager(this);
         registerEvents();
@@ -201,6 +203,9 @@ public class SimpleClans extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (dynamicWarManager != null) {
+            dynamicWarManager.shutdown();
+        }
         if (getSettingsManager().is(PERFORMANCE_SAVE_PERIODICALLY)) {
             getStorageManager().saveModified();
         }
@@ -255,6 +260,10 @@ public class SimpleClans extends JavaPlugin {
 
     public DynamicWarManager getDynamicWarManager() {
         return dynamicWarManager;
+    }
+
+    public ClanRankingManager getClanRankingManager() {
+        return clanRankingManager;
     }
 
     public ChatManager getChatManager() {

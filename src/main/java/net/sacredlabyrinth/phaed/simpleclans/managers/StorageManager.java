@@ -4,6 +4,8 @@ import net.sacredlabyrinth.phaed.simpleclans.*;
 import net.sacredlabyrinth.phaed.simpleclans.events.ClanBalanceUpdateEvent;
 import net.sacredlabyrinth.phaed.simpleclans.loggers.BankLogger;
 import net.sacredlabyrinth.phaed.simpleclans.loggers.BankOperator;
+import net.sacredlabyrinth.phaed.simpleclans.ranking.KillRecord;
+import net.sacredlabyrinth.phaed.simpleclans.ranking.WarRecord;
 import net.sacredlabyrinth.phaed.simpleclans.storage.DBCore;
 import net.sacredlabyrinth.phaed.simpleclans.storage.MySQLCore;
 import net.sacredlabyrinth.phaed.simpleclans.storage.SQLiteCore;
@@ -25,6 +27,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
@@ -232,6 +237,131 @@ public final class StorageManager {
             } else {
                 plugin.getServer().getConsoleSender().sendMessage("[SimpleClans] " + ChatColor.RED + lang("sqlite.connection.failed"));
             }
+        }
+        if (core.checkConnection()) {
+            createWarHistoryTable(settings.is(MYSQL_ENABLE));
+        }
+    }
+
+    private void createWarHistoryTable(boolean mysql) {
+        String table = getPrefixedTable("wars");
+        if (core.existsTable(table)) {
+            return;
+        }
+        plugin.getLogger().info("Creating table: " + table);
+        String id = mysql ? " `id` bigint(20) NOT NULL auto_increment," : " `id` INTEGER PRIMARY KEY AUTOINCREMENT,";
+        String query = "CREATE TABLE IF NOT EXISTS `" + table + "` (" + id
+                + " `clan_a` varchar(25) NOT NULL,"
+                + " `clan_b` varchar(25) NOT NULL,"
+                + " `casualties_a` int NOT NULL,"
+                + " `casualties_b` int NOT NULL,"
+                + " `started_at` bigint NOT NULL,"
+                + " `ended_at` bigint NOT NULL,"
+                + " `reason` varchar(16) NOT NULL"
+                + (mysql ? ", PRIMARY KEY (`id`));" : ");");
+        core.execute(query);
+    }
+
+    /**
+     * Saves a finished war. Runs asynchronously, unless the plugin is shutting down.
+     */
+    public void insertWar(@NotNull WarRecord war) {
+        Runnable insert = () -> {
+            String sql = "INSERT INTO `" + getPrefixedTable("wars") + "` (`clan_a`, `clan_b`, `casualties_a`, "
+                    + "`casualties_b`, `started_at`, `ended_at`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?);";
+            try (PreparedStatement st = core.getConnection().prepareStatement(sql)) {
+                st.setString(1, war.getClanA());
+                st.setString(2, war.getClanB());
+                st.setInt(3, war.getCasualtiesA());
+                st.setInt(4, war.getCasualtiesB());
+                st.setLong(5, war.getStartedAt());
+                st.setLong(6, war.getEndedAt());
+                st.setString(7, war.getReason());
+                st.executeUpdate();
+            } catch (SQLException ex) {
+                plugin.getLogger().log(Level.SEVERE, "Error saving war history", ex);
+            }
+        };
+        if (plugin.isEnabled()) {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, insert);
+        } else {
+            insert.run();
+        }
+    }
+
+    /**
+     * Wars that ended after the given time. Blocking: call it off the main thread.
+     */
+    @NotNull
+    public List<WarRecord> getWarsEndedSince(long since) {
+        List<WarRecord> wars = new ArrayList<>();
+        String sql = "SELECT * FROM `" + getPrefixedTable("wars") + "` WHERE `ended_at` >= ?;";
+        try (PreparedStatement st = core.getConnection().prepareStatement(sql)) {
+            st.setLong(1, since);
+            try (ResultSet res = st.executeQuery()) {
+                while (res.next()) {
+                    wars.add(new WarRecord(res.getString("clan_a"), res.getString("clan_b"),
+                            res.getInt("casualties_a"), res.getInt("casualties_b"), res.getLong("started_at"),
+                            res.getLong("ended_at"), res.getString("reason")));
+                }
+            }
+        } catch (SQLException ex) {
+            plugin.getLogger().log(Level.SEVERE, "Error reading war history", ex);
+        }
+        return wars;
+    }
+
+    /**
+     * Kills recorded after the given time. Blocking: call it off the main thread.
+     */
+    @NotNull
+    public List<KillRecord> getKillsSince(@NotNull LocalDateTime since) {
+        List<KillRecord> kills = new ArrayList<>();
+        // SQLite keeps the ISO text that insertKill wrote, MySQL a datetime
+        String pattern = plugin.getSettingsManager().is(MYSQL_ENABLE) ? "yyyy-MM-dd HH:mm:ss" : "yyyy-MM-dd'T'HH:mm:ss";
+        String sql = "SELECT `attacker_uuid`, `attacker_tag`, `victim_uuid`, `victim_tag`, `kill_type`, `created_at` FROM `"
+                + getPrefixedTable("kills") + "` WHERE `created_at` >= ?;";
+        try (PreparedStatement st = core.getConnection().prepareStatement(sql)) {
+            st.setString(1, since.format(DateTimeFormatter.ofPattern(pattern)));
+            try (ResultSet res = st.executeQuery()) {
+                while (res.next()) {
+                    Long time = parseKillTime(res.getString("created_at"));
+                    if (time == null) {
+                        continue;
+                    }
+                    kills.add(new KillRecord(parseUuid(res.getString("attacker_uuid")), res.getString("attacker_tag"),
+                            parseUuid(res.getString("victim_uuid")), res.getString("victim_tag"),
+                            String.valueOf(res.getString("kill_type")), time));
+                }
+            }
+        } catch (SQLException ex) {
+            plugin.getLogger().log(Level.SEVERE, "Error reading kills for the clan ranking", ex);
+        }
+        return kills;
+    }
+
+    @Nullable
+    private static Long parseKillTime(@Nullable String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            LocalDateTime time = LocalDateTime.parse(value.trim().replace(' ', 'T'));
+            return time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+    }
+
+    @Nullable
+    private static UUID parseUuid(@Nullable String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ex) {
+            return null;
         }
     }
 

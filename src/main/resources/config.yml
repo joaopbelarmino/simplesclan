@@ -96,6 +96,11 @@ war-and-protection:
         disabled-worlds:
             - spawn
             - arena
+        hits-to-start: 3
+        hits-window-seconds: 10
+        announce-cooldown-minutes: 10
+        join-cooldown-seconds: 60
+        join-blocked-after-damage-seconds: 10
         webhook-url: ''
         webhook-embed:
             title: '⚔️ Guerra de Clãs'
@@ -103,10 +108,41 @@ war-and-protection:
             image-url: ''
             color: '#ff3333'
 kdr-grinding-prevention:
-    enable-max-kills: false
-    max-kills-per-victim: 10
-    enable-kill-delay: false
+    enable-max-kills: true
+    max-kills-per-victim: 5
+    enable-kill-delay: true
     delay-between-kills: 5
+clan-ranking:
+    update-minutes: 5
+    weights:
+        economy: 0.30
+        combat: 0.30
+        wars: 0.25
+        activity: 0.10
+        age: 0.05
+    min-members: 3
+    min-age-days: 3
+    require-verified: true
+    inactive-days: 14
+    economy:
+        member-min-days: 3
+        max-per-member: 500000.0
+        excluded-players: []
+    combat:
+        window-days: 30
+        prior-weight: 10.0
+        max-kills-per-victim-day: 3
+        full-kills-per-clan-pair-day: 10
+        extra-kill-factor: 0.25
+    wars:
+        window-days: 30
+        half-life-days: 7.0
+        min-kills-each-side: 3
+        max-per-opponent-week: 2
+    activity:
+        days: 7
+    age:
+        full-days: 90
 commands:
     more: more
     ally: ally
@@ -153,7 +189,7 @@ kill-weights:
     civilian: 0.0
     neutral: 1.0
     ally: -1.0
-    deny-same-ip-kills: false
+    deny-same-ip-kills: true
 clan:
     homebase-teleport-wait-secs: 10
     homebase-can-be-set-only-once: true

@@ -5,6 +5,7 @@ import net.sacredlabyrinth.phaed.simpleclans.ClanPlayer;
 import net.sacredlabyrinth.phaed.simpleclans.Request;
 import net.sacredlabyrinth.phaed.simpleclans.SimpleClans;
 import net.sacredlabyrinth.phaed.simpleclans.ui.*;
+import net.sacredlabyrinth.phaed.simpleclans.ui.frames.staff.StaffFrame;
 import net.sacredlabyrinth.phaed.simpleclans.utils.CurrencyFormat;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
@@ -38,7 +39,30 @@ public class MainFrame extends SCFrame {
 			addClanList();
 		}
 		addResetKdr();
+		addStaff();
 		addLanguageSelector();
+		addClanRanking();
+	}
+
+	private void addClanRanking() {
+		SCComponent ranking = new SCComponentImpl.Builder(XMaterial.GOLD_INGOT).withSlot(8)
+				.withDisplayName(lang("gui.main.clanranking.title", getViewer()))
+				.withLore(Collections.singletonList(lang("gui.main.clanranking.lore", getViewer()))).build();
+		ranking.setPermission(ClickType.LEFT, "simpleclans.anyone.top");
+		ranking.setListener(ClickType.LEFT, () -> InventoryDrawer.open(new ClanRankingFrame(getViewer(), this)));
+		add(ranking);
+	}
+
+	private void addStaff() {
+		if (!plugin.getPermissionsManager().has(getViewer(), "simpleclans.mod.staffgui")) {
+			return;
+		}
+		SCComponent staff = new SCComponentImpl.Builder(XMaterial.COMMAND_BLOCK).withSlot(6)
+				.withDisplayName(lang("gui.main.staff.title", getViewer()))
+				.withLore(Collections.singletonList(lang("gui.main.staff.lore", getViewer()))).build();
+		staff.setPermission(ClickType.LEFT, "simpleclans.mod.staffgui");
+		staff.setListener(ClickType.LEFT, () -> InventoryDrawer.open(new StaffFrame(this, getViewer())));
+		add(staff);
 	}
 
 	private void addPendingInvite() {

@@ -75,6 +75,8 @@ permissions:
     description: Can view alliances by clan
   simpleclans.anyone.rivalries:
     description: Can view rivalries by clan
+  simpleclans.anyone.top:
+    description: Can view the clan ranking
   simpleclans.anyone.invite-toggle:
     description: Can toggle invite on/off
   simpleclans.other.kdr-exempt:
@@ -280,6 +282,7 @@ permissions:
       simpleclans.anyone.leaderboard: true
       simpleclans.anyone.alliances: true
       simpleclans.anyone.rivalries: true
+      simpleclans.anyone.top: true
       simpleclans.anyone.invite-toggle: true
       simpleclans.anyone.locale: true
   simpleclans.member.land.*:
