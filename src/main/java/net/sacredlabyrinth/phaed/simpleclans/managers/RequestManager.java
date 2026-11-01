@@ -5,6 +5,9 @@ import net.sacredlabyrinth.phaed.simpleclans.events.RequestEvent;
 import net.sacredlabyrinth.phaed.simpleclans.events.RequestFinishedEvent;
 import net.sacredlabyrinth.phaed.simpleclans.events.WarEndEvent;
 import net.sacredlabyrinth.phaed.simpleclans.utils.ChatUtils;
+import net.md_5.bungee.api.chat.ClickEvent;
+import net.md_5.bungee.api.chat.ComponentBuilder;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -13,6 +16,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.text.MessageFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import static net.sacredlabyrinth.phaed.simpleclans.SimpleClans.lang;
 import static net.sacredlabyrinth.phaed.simpleclans.managers.SettingsManager.ConfigField.*;
@@ -24,6 +29,8 @@ import static org.bukkit.ChatColor.RED;
 public final class RequestManager {
     private final SimpleClans plugin;
     private final HashMap<String, Request> requests = new HashMap<>();
+    // Concurrent: the asker task reads it from another thread
+    private final Map<String, Request> joinRequests = new ConcurrentHashMap<>();
 
     /**
      *
@@ -126,14 +133,24 @@ public final class RequestManager {
         ask(req);
     }
 
+    /**
+     * Join requests live apart from the other requests (keyed by clan tag), so one pending application does not
+     * block alliances, wars or other applications to the same clan
+     */
     public void addJoinRequest(@NotNull ClanPlayer requester, @NotNull Clan clan) {
         Player player = requester.toPlayer();
-        if (player == null || requester.getClan() != null || requests.containsKey(clan.getTag())) {
+        if (player == null || requester.getClan() != null) {
             return;
         }
 
         if (!clan.isJoinRequestsEnabled()) {
             ChatBlock.sendMessageKey(player, "join.request.disabled", clan.getName());
+            return;
+        }
+
+        String key = joinKey(clan, requester.getName());
+        if (joinRequests.containsKey(key)) {
+            ChatBlock.sendMessageKey(player, "join.request.already.pending", clan.getName());
             return;
         }
 
@@ -145,13 +162,17 @@ public final class RequestManager {
 
         String msg = lang("asking.to.join.clan", player, requester.getName(), clan.getName());
         Request req = new Request(ClanRequest.JOIN, acceptors, requester, requester.getName(), clan, msg);
-        requests.put(clan.getTag(), req);
-        ask(req);
+        joinRequests.put(key, req);
+        askJoin(req);
         ChatBlock.sendMessageKey(player, "join.request.sent", clan.getName());
     }
 
     public boolean isClanJoinRequestAvailable(@NotNull Clan clan) {
-        return clan.isJoinRequestsEnabled() && !Helper.stripOffLinePlayers(clan.getLeaders()).isEmpty();
+        return clan.isJoinRequestsEnabled() && hasLeaderOnline(clan);
+    }
+
+    public boolean hasLeaderOnline(@NotNull Clan clan) {
+        return !Helper.stripOffLinePlayers(clan.getLeaders()).isEmpty();
     }
 
     @Nullable
@@ -162,13 +183,101 @@ public final class RequestManager {
 
     @NotNull
     public List<Request> getJoinRequestsFor(@NotNull Clan clan) {
-        List<Request> joinRequests = new ArrayList<>();
-        for (Request request : requests.values()) {
-            if (request.getType() == ClanRequest.JOIN && request.getClan().equals(clan)) {
-                joinRequests.add(request);
+        List<Request> result = new ArrayList<>();
+        for (Request request : joinRequests.values()) {
+            if (request.getClan().equals(clan)) {
+                result.add(request);
             }
         }
-        return joinRequests;
+        result.sort(Comparator.comparing(Request::getTarget, String.CASE_INSENSITIVE_ORDER));
+        return result;
+    }
+
+    /**
+     * Accepts or denies one specific application. Any leader of the clan can decide it.
+     *
+     * @return false if there was no such application
+     */
+    public boolean decideJoinRequest(@NotNull ClanPlayer leader, @NotNull String applicant, boolean accept) {
+        Clan clan = leader.getClan();
+        Player leaderPlayer = leader.toPlayer();
+        if (clan == null || !leader.isLeader()) {
+            return false;
+        }
+        Request req = joinRequests.remove(joinKey(clan, applicant));
+        if (req == null) {
+            if (leaderPlayer != null) {
+                ChatBlock.sendMessageKey(leaderPlayer, "join.request.not.found", applicant);
+            }
+            return false;
+        }
+        processJoin(req, clan, leader.getName(), accept);
+        Bukkit.getPluginManager().callEvent(new RequestFinishedEvent(req));
+        return true;
+    }
+
+    private void processJoin(@NotNull Request req, @NotNull Clan clan, @NotNull String leaderName, boolean accept) {
+        Player joining = Bukkit.getPlayerExact(req.getTarget());
+        if (!accept) {
+            if (joining != null) {
+                ChatBlock.sendMessageKey(joining, "join.request.denied", clan.getName());
+            }
+            clan.leaderAnnounce(RED + lang("join.request.denied.leaders", leaderName, req.getTarget()));
+            return;
+        }
+        if (joining == null) {
+            clan.leaderAnnounce(RED + lang("join.request.applicant.offline", req.getTarget()));
+            return;
+        }
+
+        ClanPlayer cp = plugin.getClanManager().getCreateClanPlayer(joining.getUniqueId());
+        if (cp.getClan() != null) {
+            clan.leaderAnnounce(RED + lang("join.request.applicant.has.clan", req.getTarget()));
+            return;
+        }
+
+        int maxMembers = !clan.isVerified() ? plugin.getSettingsManager().getInt(CLAN_UNVERIFIED_MAX_MEMBERS)
+                : plugin.getSettingsManager().getInt(CLAN_MAX_MEMBERS);
+        if (maxMembers > 0 && clan.getSize() >= maxMembers) {
+            ChatBlock.sendMessageKey(joining, "this.clan.has.reached.the.member.limit");
+            clan.leaderAnnounce(RED + lang("this.clan.has.reached.the.member.limit"));
+            return;
+        }
+
+        ChatBlock.sendMessageKey(joining, "join.request.accepted", clan.getName());
+        clan.addBb(lang("joined.the.clan", joining.getName()));
+        plugin.getClanManager().serverAnnounce(lang("has.joined", joining.getName(), clan.getName()));
+        clan.addPlayerToClan(cp);
+        // Other clans' pending applications from this player are now pointless
+        joinRequests.values().removeIf(other -> other.getTarget().equalsIgnoreCase(joining.getName()));
+    }
+
+    /**
+     * Sends the application to the clan leaders that are online, with buttons for this specific player
+     */
+    private void askJoin(@NotNull Request req) {
+        String clanCommand = plugin.getSettingsManager().getString(COMMANDS_CLAN);
+        for (ClanPlayer leader : req.getClan().getLeaders()) {
+            Player recipient = leader.toPlayer();
+            if (recipient == null) {
+                continue;
+            }
+            ComponentBuilder builder = new ComponentBuilder("");
+            builder.append(TextComponent.fromLegacyText(ChatUtils.parseColors(lang("join.request.message", recipient,
+                    req.getClan().getColorTag(), req.getMsg()))));
+            builder.append(" ").reset();
+            builder.append(TextComponent.fromLegacyText(ChatUtils.parseColors(lang("clickable.accept", recipient))))
+                    .event(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/" + clanCommand + " joinaccept " + req.getTarget()));
+            builder.append(" ").reset();
+            builder.append(TextComponent.fromLegacyText(ChatUtils.parseColors(lang("clickable.deny", recipient))))
+                    .event(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/" + clanCommand + " joindeny " + req.getTarget()));
+            recipient.spigot().sendMessage(builder.create());
+        }
+    }
+
+    @NotNull
+    private static String joinKey(@NotNull Clan clan, @NotNull String applicant) {
+        return clan.getTag().toLowerCase(Locale.ROOT) + ":" + applicant.toLowerCase(Locale.ROOT);
     }
 
     public void addWarStartRequest(ClanPlayer requester, Clan warClan, Clan requestingClan) {
@@ -238,6 +347,8 @@ public final class RequestManager {
 
             if (req != null) {
                 processInvite(req, VoteResult.ACCEPT);
+            } else {
+                decideSingleJoinRequest(cp, true);
             }
         }
     }
@@ -253,7 +364,32 @@ public final class RequestManager {
 
             if (req != null) {
                 processInvite(req, VoteResult.DENY);
+            } else {
+                decideSingleJoinRequest(cp, false);
             }
+        }
+    }
+
+    /**
+     * Keeps /accept and /deny working for applications: with a single one pending it is decided, with more the
+     * leader is told to pick one
+     */
+    private void decideSingleJoinRequest(@NotNull ClanPlayer leader, boolean accept) {
+        Clan clan = leader.getClan();
+        if (clan == null || !leader.isLeader()) {
+            return;
+        }
+        List<Request> pending = getJoinRequestsFor(clan);
+        if (pending.size() == 1) {
+            decideJoinRequest(leader, pending.get(0).getTarget(), accept);
+            return;
+        }
+        Player player = leader.toPlayer();
+        if (player != null && !pending.isEmpty()) {
+            String names = pending.stream().map(Request::getTarget).collect(Collectors.joining(", "));
+            String clanCommand = plugin.getSettingsManager().getString(COMMANDS_CLAN);
+            ChatBlock.sendMessageKey(player, "join.request.choose", names, "/" + clanCommand + " joinaccept",
+                    "/" + clanCommand + " joindeny");
         }
     }
 
@@ -341,13 +477,6 @@ public final class RequestManager {
 
                 processRename(req);
                 break;
-            case JOIN:
-                if (!req.votingFinished()) {
-                    return;
-                }
-                processJoin(req, requestClan, denies);
-                target = requestClan.getTag();
-                break;
             default:
                 return;
         }
@@ -355,36 +484,6 @@ public final class RequestManager {
         requests.remove(target);
         SimpleClans.getInstance().getServer().getPluginManager().callEvent(new RequestFinishedEvent(req));
         req.cleanVotes();
-    }
-
-    private void processJoin(@NotNull Request req, @NotNull Clan clan, @NotNull List<String> denies) {
-        Player joining = Bukkit.getPlayerExact(req.getTarget());
-        if (joining == null) {
-            return;
-        }
-        if (!denies.isEmpty()) {
-            ChatBlock.sendMessageKey(joining, "join.request.denied", clan.getName());
-            clan.leaderAnnounce(RED + lang("join.request.denied.leaders", joining, String.join(", ", denies), joining.getName()));
-            return;
-        }
-
-        ClanPlayer cp = plugin.getClanManager().getCreateClanPlayer(joining.getUniqueId());
-        if (cp.getClan() != null) {
-            ChatBlock.sendMessageKey(joining, "you.must.first.resign", cp.getClan().getName());
-            return;
-        }
-
-        int maxMembers = !clan.isVerified() ? plugin.getSettingsManager().getInt(CLAN_UNVERIFIED_MAX_MEMBERS)
-                : plugin.getSettingsManager().getInt(CLAN_MAX_MEMBERS);
-        if (maxMembers > 0 && clan.getSize() >= maxMembers) {
-            ChatBlock.sendMessageKey(joining, "this.clan.has.reached.the.member.limit");
-            return;
-        }
-
-        ChatBlock.sendMessageKey(joining, "join.request.accepted", clan.getName());
-        clan.addBb(lang("joined.the.clan", joining.getName()));
-        plugin.getClanManager().serverAnnounce(lang("has.joined", joining.getName(), clan.getName()));
-        clan.addPlayerToClan(cp);
     }
 
     private void processRename(Request request) {
@@ -540,6 +639,20 @@ public final class RequestManager {
                     }
 
                     ask(req);
+                    req.incrementAskCount();
+                }
+
+                for (Iterator<Request> iter = joinRequests.values().iterator(); iter.hasNext(); ) {
+                    Request req = iter.next();
+                    if (req.reachedRequestLimit()) {
+                        iter.remove();
+                        Player applicant = Bukkit.getPlayerExact(req.getTarget());
+                        if (applicant != null) {
+                            ChatBlock.sendMessageKey(applicant, "join.request.expired", req.getClan().getName());
+                        }
+                        continue;
+                    }
+                    askJoin(req);
                     req.incrementAskCount();
                 }
             }
