@@ -9,10 +9,15 @@ import java.util.Map;
 
 public class War {
     private final Map<Clan, Integer> clans = new HashMap<>();
+    private final long startedAt = System.currentTimeMillis();
 
     public War(@NotNull Clan clan1, @NotNull Clan clan2) {
         clans.put(clan1, 0);
         clans.put(clan2, 0);
+    }
+
+    public long getStartedAt() {
+        return startedAt;
     }
 
     public List<Clan> getClans() {
@@ -37,13 +42,14 @@ public class War {
             return true;
         }
         if (obj instanceof War) {
-            return clans.equals(((War) obj).clans);
+            // Only the clans identify a war: casualties change while it is stored as a map key
+            return clans.keySet().equals(((War) obj).clans.keySet());
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        return clans.hashCode();
+        return clans.keySet().hashCode();
     }
 }

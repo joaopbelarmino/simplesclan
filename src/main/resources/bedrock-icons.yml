@@ -1,0 +1,86 @@
+# Icons of the Bedrock (Floodgate) menus.
+# A value is a texture path of the Bedrock resource pack (textures/ui/..., textures/items/...)
+# or an http(s) URL. Leave it empty to show the button without an icon.
+# Changes apply after /clan admin reload.
+
+# Face of the players in the member and invite lists. {uuid} and {name} are replaced.
+# Bedrock players have no Java skin, so they get the "member" icon. Leave empty to always use it.
+player-head-url: "https://mc-heads.net/avatar/{uuid}/64"
+
+buttons:
+  # Home
+  war-join: textures/ui/icon_sword
+  my-clan: textures/ui/icon_best3
+  members: textures/ui/FriendsIcon
+  join-requests: textures/ui/icon_new
+  manage: textures/ui/permissions_op_crown
+  ranking: textures/items/gold_ingot
+  staff: textures/blocks/command_block
+  settings: textures/ui/settings_glyph_color_2x
+  create: textures/ui/color_plus
+  apply: textures/ui/FriendsIcon
+  accept: textures/ui/confirm
+  deny: textures/ui/cancel
+  # My clan
+  bank: textures/ui/store_home_icon
+  relations: textures/ui/multiplayer_glyph_color
+  home: textures/ui/icon_recipe_item
+  home-teleport: textures/ui/realms_slot_check
+  home-set: textures/ui/color_plus
+  ff: textures/items/iron_sword
+  chat: textures/ui/comment
+  resign: textures/ui/cancel
+  # Manage
+  toggle: textures/ui/refresh_light
+  war-toggle: textures/items/diamond_sword
+  verify: textures/ui/confirm
+  disband: textures/ui/cancel
+  # Bank
+  deposit: textures/ui/color_plus
+  withdraw: textures/ui/download_backup
+  edit: textures/items/book_writable
+  # Relations
+  ally-add: textures/ui/color_plus
+  ally-remove: textures/ui/cancel
+  rival-add: textures/items/iron_sword
+  rival-remove: textures/ui/cancel
+  # Members
+  member: textures/ui/icon_steve
+  invite: textures/ui/color_plus
+  kick: textures/ui/cancel
+  promote: textures/ui/up_arrow
+  demote: textures/ui/down_arrow
+  trust: textures/ui/permissions_member_star
+  # Ranking
+  ranking-top: textures/items/diamond
+  ranking-clan: textures/items/iron_ingot
+  # Settings
+  language: textures/ui/language_glyph_color
+  reset-kdr: textures/ui/refresh_light
+  # Navigation
+  back: textures/ui/arrow_left
+  previous: textures/ui/arrow_left
+  next: textures/ui/arrow_right
+
+# Icons of the menus converted from the Java inventories, by item
+items:
+  BOOK: textures/items/book_normal
+  PAINTING: textures/items/painting
+  ANVIL: textures/blocks/anvil_top_damaged_0
+  GOLD_INGOT: textures/items/gold_ingot
+  DIAMOND: textures/items/diamond
+  EMERALD: textures/items/emerald
+  MAP: textures/items/map_empty
+  LIME_WOOL: textures/blocks/wool_colored_lime
+  RED_WOOL: textures/blocks/wool_colored_red
+  WHITE_WOOL: textures/blocks/wool_colored_white
+  PURPLE_BANNER: textures/items/banner_base
+  CYAN_BANNER: textures/items/banner_base
+  RED_BANNER: textures/items/banner_base
+  PLAYER_HEAD: textures/items/skull_steve
+  SKELETON_SKULL: textures/items/skull_skeleton
+  COMMAND_BLOCK: textures/blocks/command_block
+  LEVER: textures/blocks/lever
+  GOLD_BLOCK: textures/blocks/gold_block
+  IRON_BLOCK: textures/blocks/iron_block
+  STONE_BUTTON: textures/blocks/stone

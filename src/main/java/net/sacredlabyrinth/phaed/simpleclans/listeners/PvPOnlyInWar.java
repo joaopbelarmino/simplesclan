@@ -3,6 +3,7 @@ package net.sacredlabyrinth.phaed.simpleclans.listeners;
 import net.sacredlabyrinth.phaed.simpleclans.ChatBlock;
 import net.sacredlabyrinth.phaed.simpleclans.Clan;
 import net.sacredlabyrinth.phaed.simpleclans.SimpleClans;
+import net.sacredlabyrinth.phaed.simpleclans.managers.DynamicWarManager;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -51,8 +52,14 @@ public class PvPOnlyInWar extends SCListener {
         }
 
         if (!attackerClan.isWarring(victimClan)) {
-            if (plugin.getDynamicWarManager().canStart(attackerClan, victimClan)) {
-                plugin.getDynamicWarManager().handleHit(attacker, victim, attackerClan, victimClan, victim.getLocation());
+            DynamicWarManager dynamicWarManager = plugin.getDynamicWarManager();
+            if (dynamicWarManager.canStart(attackerClan, victimClan)) {
+                // The hit is counted by DynamicWarListener, once no other plugin cancels it
+                if (dynamicWarManager.isAllowedWorld(victim.getWorld())) {
+                    return;
+                }
+                dynamicWarManager.warnDisabledWorld(attacker);
+                event.setCancelled(true);
                 return;
             }
             ChatBlock.sendMessageKey(attacker, "clans.not.at.war.pvp.denied", victimClan.getName());

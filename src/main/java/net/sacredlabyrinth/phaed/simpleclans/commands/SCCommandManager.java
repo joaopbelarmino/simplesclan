@@ -233,7 +233,7 @@ public class SCCommandManager extends PaperCommandManager {
                 "lookup", "roster", "profile", "list", "create", "apply", "description", "start", "end", "admin", "help", "mod",
                 "setdefault", "removedefault", "land", "break", "interact", "place_block", "damage", "interact_entity",
                 "container", "permanent", "take", "give", "join", "leave", "mute", "confirm", "balance", "discord", "rename",
-                "locale", "joinrequests", "warstart");
+                "locale", "joinrequests", "warstart", "joinaccept", "joindeny", "top");
 
         COMPLETIONS = Arrays.asList("tag", "name");
     }

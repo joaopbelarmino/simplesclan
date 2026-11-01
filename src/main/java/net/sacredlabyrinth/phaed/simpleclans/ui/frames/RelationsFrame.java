@@ -23,6 +23,11 @@ public class RelationsFrame extends SCFrame {
         this.clan = clan;
     }
 
+    @NotNull
+    public Clan getClan() {
+        return clan;
+    }
+
     @Override
     public @NotNull String getTitle() {
         return lang("gui.relations.title", getViewer());

@@ -262,4 +262,18 @@ public class LeaderCommands extends BaseCommand {
             }
         }
     }
+
+    @Subcommand("%joinaccept")
+    @CommandCompletion("@join_requests")
+    @Description("{@@command.description.joinaccept}")
+    public void joinAccept(ClanPlayer cp, @Name("player") @Single String applicant) {
+        requestManager.decideJoinRequest(cp, applicant, true);
+    }
+
+    @Subcommand("%joindeny")
+    @CommandCompletion("@join_requests")
+    @Description("{@@command.description.joindeny}")
+    public void joinDeny(ClanPlayer cp, @Name("player") @Single String applicant) {
+        requestManager.decideJoinRequest(cp, applicant, false);
+    }
 }

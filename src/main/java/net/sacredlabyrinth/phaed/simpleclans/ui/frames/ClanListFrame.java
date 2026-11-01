@@ -2,7 +2,6 @@ package net.sacredlabyrinth.phaed.simpleclans.ui.frames;
 
 import com.cryptomorin.xseries.XMaterial;
 import net.sacredlabyrinth.phaed.simpleclans.Clan;
-import net.sacredlabyrinth.phaed.simpleclans.ClanPlayer;
 import net.sacredlabyrinth.phaed.simpleclans.SimpleClans;
 import net.sacredlabyrinth.phaed.simpleclans.managers.SettingsManager;
 import net.sacredlabyrinth.phaed.simpleclans.ui.InventoryController;
@@ -31,10 +30,12 @@ public class ClanListFrame extends SCFrame {
 	private final Paginator paginator;
 	private final RankingNumberResolver<Clan, BigDecimal> rankingResolver;
 	private final SimpleClans plugin;
+	private final boolean viewerHasClan;
 
 	public ClanListFrame(SCFrame parent, Player viewer) {
 		super(parent, viewer);
 		plugin = SimpleClans.getInstance();
+		viewerHasClan = plugin.getClanManager().getCreateClanPlayer(viewer.getUniqueId()).getClan() != null;
 		SettingsManager sm = plugin.getSettingsManager();
 		clans = plugin.getClanManager().getClans().stream()
 				.filter(clan -> clan.isVerified() || sm.is(SHOW_UNVERIFIED_ON_LIST))
@@ -80,21 +81,25 @@ public class ClanListFrame extends SCFrame {
 
 	@NotNull
 	private String getActionLore(@NotNull Clan clan) {
-		ClanPlayer clanPlayer = plugin.getClanManager().getCreateClanPlayer(getViewer().getUniqueId());
-		if (clanPlayer.getClan() == null) {
-			return lang("gui.clanlist.clan.lore.apply", getViewer());
+		if (viewerHasClan) {
+			return lang("gui.clanlist.clan.lore.view", getViewer());
 		}
-		return lang("gui.clanlist.clan.lore.view", getViewer());
+		if (!plugin.getRequestManager().hasLeaderOnline(clan)) {
+			return lang("gui.clanlist.clan.lore.no.leader", getViewer());
+		}
+		return lang("gui.clanlist.clan.lore.apply", getViewer());
 	}
 
 	private boolean canShowClan(@NotNull Clan clan) {
-		ClanPlayer clanPlayer = plugin.getClanManager().getCreateClanPlayer(getViewer().getUniqueId());
-		return clanPlayer.getClan() != null || plugin.getRequestManager().isClanJoinRequestAvailable(clan);
+		// Clans without a leader online are still listed, marked as such
+		return viewerHasClan || clan.isJoinRequestsEnabled();
 	}
 
 	private void setAction(@NotNull Clan clan, @NotNull SCComponent component) {
-		ClanPlayer clanPlayer = plugin.getClanManager().getCreateClanPlayer(getViewer().getUniqueId());
-		if (clanPlayer.getClan() == null) {
+		if (!viewerHasClan) {
+			if (!plugin.getRequestManager().hasLeaderOnline(clan)) {
+				return;
+			}
 			component.setPermission(ClickType.LEFT, "simpleclans.anyone.apply");
 			component.setListener(ClickType.LEFT, () -> InventoryController.runSubcommand(getViewer(), "apply", false, clan.getTag()));
 			return;

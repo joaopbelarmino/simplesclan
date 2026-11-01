@@ -7,31 +7,33 @@ import net.sacredlabyrinth.phaed.simpleclans.ClanPlayer.Channel;
 import net.sacredlabyrinth.phaed.simpleclans.RankPermission;
 import net.sacredlabyrinth.phaed.simpleclans.Request;
 import net.sacredlabyrinth.phaed.simpleclans.SimpleClans;
+import net.sacredlabyrinth.phaed.simpleclans.events.PlayerResetKdrEvent;
+import net.sacredlabyrinth.phaed.simpleclans.managers.PermissionsManager;
 import net.sacredlabyrinth.phaed.simpleclans.managers.SettingsManager;
+import net.sacredlabyrinth.phaed.simpleclans.ranking.ClanScore;
 import net.sacredlabyrinth.phaed.simpleclans.ui.InventoryDrawer;
-import net.sacredlabyrinth.phaed.simpleclans.ui.frames.LanguageSelectorFrame;
 import net.sacredlabyrinth.phaed.simpleclans.ui.frames.MainFrame;
-import net.sacredlabyrinth.phaed.simpleclans.ui.frames.RelationsFrame;
 import net.sacredlabyrinth.phaed.simpleclans.ui.frames.RosterFrame;
+import net.sacredlabyrinth.phaed.simpleclans.ui.frames.staff.StaffFrame;
+import net.sacredlabyrinth.phaed.simpleclans.utils.ChatUtils;
 import net.sacredlabyrinth.phaed.simpleclans.utils.CurrencyFormat;
 import net.sacredlabyrinth.phaed.simpleclans.utils.KDRFormat;
 import net.sacredlabyrinth.phaed.simpleclans.utils.VanishUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.geysermc.cumulus.form.CustomForm;
-import org.geysermc.cumulus.form.ModalForm;
-import org.geysermc.cumulus.form.SimpleForm;
-import org.geysermc.floodgate.api.FloodgateApi;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 import static net.sacredlabyrinth.phaed.simpleclans.SimpleClans.lang;
 import static net.sacredlabyrinth.phaed.simpleclans.managers.SettingsManager.ConfigField.*;
 
+/**
+ * The main Bedrock menu: Home, My clan, Manage and the screens under them
+ */
 public final class BedrockClanHomeDrawer {
 
     private static final SimpleClans plugin = SimpleClans.getInstance();
@@ -50,162 +52,105 @@ public final class BedrockClanHomeDrawer {
     }
 
     private static void openCivilianMenu(@NotNull Player player, @NotNull MainFrame frame) {
+        PermissionsManager permissions = plugin.getPermissionsManager();
         Request invite = plugin.getRequestManager().getInviteRequestFor(player);
-        List<Runnable> actions = new ArrayList<>();
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.home.no-clan.title", player))
-                .content(BedrockText.lang("bedrock.home.no-clan.content", player));
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.leader.create")) {
-            builder.button(BedrockText.lang("bedrock.home.create-clan", player, getCreationPrice(player)),
-                    BedrockFormIconResolver.ui("textures/ui/color_plus"));
-            actions.add(() -> openCreateClanForm(player));
-        }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.anyone.apply")) {
-            builder.button(BedrockText.lang("bedrock.home.apply-clan", player),
-                    BedrockFormIconResolver.ui("textures/ui/FriendsIcon"));
-            actions.add(() -> openApplyClanForm(player));
-        }
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.home.no-clan.title", player),
+                BedrockText.lang("bedrock.home.no-clan.content", player));
 
         if (invite != null) {
-            builder.button(BedrockText.lang("bedrock.home.accept-invite", player, invite.getClan().getName()),
-                    BedrockFormIconResolver.ui("textures/ui/confirm"));
-            actions.add(() -> runClanCommand(player, plugin.getSettingsManager().getString(COMMANDS_ACCEPT)));
+            menu.button(BedrockText.button("bedrock.home.accept-invite", player, invite.getClan().getName()),
+                    "accept", () -> {
+                        // accept is a root command, not a clan subcommand
+                        player.performCommand(plugin.getSettingsManager().getString(COMMANDS_ACCEPT));
+                        Bukkit.getScheduler().runTask(plugin, () -> open(frame));
+                    });
         }
-
-        builder.button(BedrockText.lang("bedrock.home.settings", player),
-                BedrockFormIconResolver.ui("textures/ui/settings_glyph_color_2x"));
-        actions.add(() -> openSettingsMenu(player, frame));
-
-        builder.validResultHandler(response -> runButton(actions, response.clickedButtonId()));
-        sendForm(player, builder);
+        if (permissions.has(player, "simpleclans.leader.create")) {
+            menu.button(BedrockText.button("bedrock.home.create-clan", player, getCreationPrice(player)),
+                    "create", () -> openCreateClanForm(player, frame, "", "", null));
+        }
+        if (permissions.has(player, "simpleclans.anyone.apply")) {
+            menu.button(BedrockText.button("bedrock.home.apply-clan", player), "apply",
+                    () -> BedrockClanScreens.openApplyList(player, () -> open(frame)));
+        }
+        addCommonButtons(menu, player, frame);
+        menu.send();
     }
 
     private static void openClanMenu(@NotNull Player player, @NotNull MainFrame frame, @NotNull ClanPlayer clanPlayer) {
-        Clan clan = clanPlayer.getClan();
-        List<Request> joinRequests = clanPlayer.isLeader()
-                ? plugin.getRequestManager().getJoinRequestsFor(clan)
-                : new ArrayList<>();
-        List<Runnable> actions = new ArrayList<>();
-
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.home.clan.title", player, clan.getName()))
-                .content(BedrockText.lang("bedrock.home.clan.content", player, clan.getColorTag(), clan.getSize()));
-
-        if (plugin.getDynamicWarManager().hasActiveWar(clan)
-                && plugin.getPermissionsManager().has(player, "simpleclans.member.dynamicwar")) {
-            builder.button(BedrockText.lang("bedrock.home.war-join", player),
-                    BedrockFormIconResolver.ui("textures/ui/icon_sword"));
-            actions.add(() -> plugin.getDynamicWarManager().joinNearestWar(player));
-        }
-
-        builder.button(BedrockText.lang("bedrock.home.my-clan", player),
-                BedrockFormIconResolver.ui("textures/ui/icon_best3"));
-        actions.add(() -> openMyClanMenu(player, frame, clanPlayer));
-
-        if (clanPlayer.isLeader() && !clan.isVerified()
-                && plugin.getPermissionsManager().has(player, "simpleclans.leader.verify")) {
-            builder.button(BedrockText.lang("bedrock.home.verify-clan", player),
-                    BedrockFormIconResolver.ui("textures/ui/confirm"));
-            actions.add(() -> runClanCommand(player, "verify"));
-        }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.member.roster")) {
-            builder.button(BedrockText.lang("bedrock.home.members", player),
-                    BedrockFormIconResolver.ui("textures/ui/FriendsIcon"));
-            actions.add(() -> InventoryDrawer.open(new RosterFrame(player, frame, clan)));
-        }
-
-        if (!joinRequests.isEmpty()) {
-            builder.button(BedrockText.lang("bedrock.home.join-requests", player, joinRequests.size()),
-                    BedrockFormIconResolver.ui("textures/ui/icon_new"));
-            actions.add(() -> openJoinRequestForm(player, joinRequests.get(0)));
-        }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.vip.resetkdr")) {
-            builder.button(BedrockText.lang("bedrock.home.reset-kdr", player),
-                    BedrockFormIconResolver.ui("textures/ui/refresh_light"));
-            actions.add(() -> runClanCommand(player, "resetkdr"));
-        }
-
-        builder.button(BedrockText.lang("bedrock.home.settings", player),
-                BedrockFormIconResolver.ui("textures/ui/settings_glyph_color_2x"));
-        actions.add(() -> openSettingsMenu(player, frame));
-
-        builder.validResultHandler(response -> runButton(actions, response.clickedButtonId()));
-        sendForm(player, builder);
-    }
-
-    private static void openMyClanMenu(@NotNull Player player, @NotNull MainFrame frame, @NotNull ClanPlayer clanPlayer) {
+        PermissionsManager permissions = plugin.getPermissionsManager();
         Clan clan = clanPlayer.getClan();
         if (clan == null) {
             open(frame);
             return;
         }
+        ClanScore score = plugin.getClanRankingManager().getScore(clan);
+        String ranking = score == null ? BedrockText.lang("bedrock.home.clan.unranked", player)
+                : BedrockText.lang("bedrock.home.clan.ranked", player, score.getPosition(), score.getTotal());
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.home.clan.title", player, clan.getName()),
+                BedrockText.lang("bedrock.home.clan.content", player, clan.getColorTag(),
+                        VanishUtils.getNonVanished(player, clan).size(), clan.getSize(),
+                        KDRFormat.format(clan.getTotalKDR()), ranking));
 
-        List<Runnable> actions = new ArrayList<>();
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.my-clan.title", player, clan.getName()))
-                .content(BedrockText.lang("bedrock.my-clan.content", player,
-                        clan.getColorTag(), clan.getSize(), clan.getTotalKDR(), clan.getBalanceFormatted()));
-
-        builder.button(BedrockText.lang("bedrock.my-clan.overview", player),
-                BedrockFormIconResolver.ui("textures/ui/icon_book_writable"));
-        actions.add(() -> openClanOverview(player, frame, clanPlayer));
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.member.roster")) {
-            builder.button(BedrockText.lang("bedrock.my-clan.members", player),
-                    BedrockFormIconResolver.ui("textures/ui/FriendsIcon"));
-            actions.add(() -> InventoryDrawer.open(new RosterFrame(player, frame, clan)));
+        if (plugin.getDynamicWarManager().hasActiveWar(clan) && permissions.has(player, "simpleclans.member.dynamicwar")) {
+            menu.button(BedrockText.button("bedrock.home.war-join", player), "war-join",
+                    () -> plugin.getDynamicWarManager().joinNearestWar(player));
         }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.anyone.alliances")) {
-            builder.button(BedrockText.lang("bedrock.my-clan.relations", player),
-                    BedrockFormIconResolver.ui("textures/ui/multiplayer_glyph_color"));
-            actions.add(() -> InventoryDrawer.open(new RelationsFrame(player, frame, clan)));
+        menu.button(BedrockText.button("bedrock.home.my-clan", player), "my-clan",
+                () -> openMyClanMenu(player, frame));
+        if (permissions.has(player, "simpleclans.member.roster")) {
+            menu.button(BedrockText.button("bedrock.home.members", player), "members",
+                    () -> InventoryDrawer.open(new RosterFrame(player, frame, clan)));
         }
-
-        builder.button(BedrockText.lang("bedrock.my-clan.home", player),
-                BedrockFormIconResolver.ui("textures/ui/icon_recipe_item"));
-        actions.add(() -> openHomeActions(player, frame, clanPlayer));
-
-        builder.button(BedrockText.lang("bedrock.gui.back", player),
-                BedrockFormIconResolver.ui("textures/ui/arrow_left"));
-        actions.add(() -> open(frame));
-
-        builder.validResultHandler(response -> runButton(actions, response.clickedButtonId()));
-        sendForm(player, builder);
+        if (clanPlayer.isLeader()) {
+            List<Request> joinRequests = plugin.getRequestManager().getJoinRequestsFor(clan);
+            if (!joinRequests.isEmpty()) {
+                menu.button(BedrockText.button("bedrock.home.join-requests", player, joinRequests.size()),
+                        "join-requests", () -> openJoinRequests(player, frame));
+            }
+            menu.button(BedrockText.button("bedrock.home.manage", player), "manage",
+                    () -> openManageMenu(player, frame));
+        }
+        addCommonButtons(menu, player, frame);
+        menu.send();
     }
 
-    private static void openClanOverview(@NotNull Player player, @NotNull MainFrame frame, @NotNull ClanPlayer clanPlayer) {
-        Clan clan = clanPlayer.getClan();
+    /**
+     * Ranking, staff and settings, shown with or without a clan
+     */
+    private static void addCommonButtons(@NotNull BedrockForms.Menu menu, @NotNull Player player,
+                                         @NotNull MainFrame frame) {
+        PermissionsManager permissions = plugin.getPermissionsManager();
+        if (permissions.has(player, "simpleclans.anyone.top")) {
+            menu.button(BedrockText.button("bedrock.home.ranking", player), "ranking",
+                    () -> BedrockClanScreens.openRanking(player, () -> open(frame)));
+        }
+        if (permissions.has(player, "simpleclans.mod.staffgui")) {
+            menu.button(BedrockText.button("bedrock.home.staff", player), "staff",
+                    () -> InventoryDrawer.open(new StaffFrame(frame, player)));
+        }
+        menu.button(BedrockText.button("bedrock.home.settings", player), "settings",
+                () -> openSettingsMenu(player, frame));
+    }
+
+    private static void openMyClanMenu(@NotNull Player player, @NotNull MainFrame frame) {
+        PermissionsManager permissions = plugin.getPermissionsManager();
+        ClanPlayer clanPlayer = plugin.getClanManager().getClanPlayer(player);
+        Clan clan = clanPlayer == null ? null : clanPlayer.getClan();
         if (clan == null) {
             open(frame);
             return;
         }
-
-        List<Request> joinRequests = clanPlayer.isLeader()
-                ? plugin.getRequestManager().getJoinRequestsFor(clan)
-                : new ArrayList<>();
-        List<Runnable> actions = new ArrayList<>();
         String description = clan.getDescription() == null || clan.getDescription().isEmpty()
                 ? BedrockText.lang("no.description", player)
-                : clan.getDescription();
+                : BedrockText.color(clan.getDescription());
         String verified = BedrockText.lang(clan.isVerified()
-                ? "bedrock.overview.verified.yes"
-                : "bedrock.overview.verified.no", player);
-        String personalFf = BedrockText.lang(clanPlayer.isFriendlyFire()
-                ? "bedrock.status.allowed"
-                : "bedrock.status.auto", player);
-        String clanFf = BedrockText.lang(clan.isFriendlyFire()
-                ? "bedrock.status.allowed"
-                : "bedrock.status.blocked", player);
-        String leaders = BedrockText.clean(clan.getLeadersString("", ", "));
-
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.overview.title", player, clan.getName()))
-                .content(BedrockText.lang("bedrock.overview.content", player,
+                ? "bedrock.overview.verified.yes" : "bedrock.overview.verified.no", player);
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.my-clan.title", player, clan.getName()),
+                BedrockText.lang("bedrock.my-clan.content", player,
                         clan.getColorTag(),
                         description,
                         verified,
@@ -215,275 +160,392 @@ public final class BedrockClanHomeDrawer {
                         clan.getTotalKills(),
                         clan.getTotalDeaths(),
                         clan.getBalanceFormatted(),
-                        leaders,
-                        personalFf,
-                        clanFf));
+                        BedrockText.color(clan.getLeadersString("", ", "))));
 
-        if (plugin.getPermissionsManager().has(player, "simpleclans.member.roster")) {
-            builder.button(BedrockText.lang("bedrock.overview.members", player),
-                    BedrockFormIconResolver.ui("textures/ui/FriendsIcon"));
-            actions.add(() -> InventoryDrawer.open(new RosterFrame(player, frame, clan)));
+        if (permissions.has(player, RankPermission.BANK_BALANCE, false)) {
+            menu.button(BedrockText.button("bedrock.my-clan.bank", player), "bank", () -> openBankMenu(player, frame));
         }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.anyone.alliances")) {
-            builder.button(BedrockText.lang("bedrock.overview.relations", player),
-                    BedrockFormIconResolver.ui("textures/ui/multiplayer_glyph_color"));
-            actions.add(() -> InventoryDrawer.open(new RelationsFrame(player, frame, clan)));
+        if (permissions.has(player, "simpleclans.anyone.alliances")) {
+            menu.button(BedrockText.button("bedrock.my-clan.relations", player), "relations",
+                    () -> BedrockClanScreens.openRelations(player, clan, () -> openMyClanMenu(player, frame)));
         }
-
-        builder.button(BedrockText.lang("bedrock.overview.home", player),
-                BedrockFormIconResolver.ui("textures/ui/icon_recipe_item"));
-        actions.add(() -> openHomeActions(player, frame, clanPlayer));
-
-        if (plugin.getPermissionsManager().has(player, RankPermission.BANK_BALANCE, false)) {
-            builder.button(BedrockText.lang("bedrock.overview.bank", player),
-                    BedrockFormIconResolver.ui("textures/ui/store_home_icon"));
-            actions.add(() -> openBankMenu(player, frame, clanPlayer));
+        menu.button(BedrockText.button("bedrock.my-clan.home", player), "home",
+                () -> openHomeActions(player, frame));
+        if (permissions.has(player, "simpleclans.member.ff")
+                || permissions.has(player, RankPermission.FRIENDLYFIRE, false)) {
+            menu.button(BedrockText.button("bedrock.my-clan.ff", player), "ff",
+                    () -> openFriendlyFireMenu(player, frame));
         }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.member.ff")
-                || plugin.getPermissionsManager().has(player, RankPermission.FRIENDLYFIRE, false)) {
-            builder.button(BedrockText.lang("bedrock.overview.ff", player),
-                    BedrockFormIconResolver.ui("textures/ui/icon_sword"));
-            actions.add(() -> openFriendlyFireMenu(player, frame, clanPlayer));
+        if (permissions.has(player, "simpleclans.member.chat")) {
+            boolean inClanChat = clanPlayer.getChannel() == Channel.CLAN;
+            menu.button(toggleText(player, "bedrock.my-clan.chat", inClanChat), "chat", () -> {
+                clanPlayer.setChannel(inClanChat ? Channel.NONE : Channel.CLAN);
+                openMyClanMenu(player, frame);
+            });
         }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.member.chat")) {
-            builder.button(BedrockText.lang("bedrock.overview.chat", player),
-                    BedrockFormIconResolver.ui("textures/ui/comment"));
-            actions.add(() -> toggleClanChat(player, frame, clanPlayer));
+        if (permissions.has(player, "simpleclans.member.resign")) {
+            menu.button(BedrockText.button("bedrock.my-clan.resign", player), "resign",
+                    () -> BedrockForms.confirm(player,
+                            BedrockText.lang("bedrock.resign.title", player),
+                            BedrockText.lang("bedrock.resign.content", player, clan.getName()),
+                            () -> resign(player, frame, clan),
+                            () -> openMyClanMenu(player, frame)));
         }
-
-        if (clanPlayer.isLeader() && !clan.isVerified()
-                && plugin.getPermissionsManager().has(player, "simpleclans.leader.verify")) {
-            builder.button(BedrockText.lang("bedrock.overview.verify", player),
-                    BedrockFormIconResolver.ui("textures/ui/confirm"));
-            actions.add(() -> runClanCommand(player, "verify"));
-        }
-
-        if (!joinRequests.isEmpty()) {
-            builder.button(BedrockText.lang("bedrock.overview.join-requests", player, joinRequests.size()),
-                    BedrockFormIconResolver.ui("textures/ui/icon_new"));
-            actions.add(() -> openJoinRequestForm(player, joinRequests.get(0)));
-        }
-
-        if (clanPlayer.isLeader() && plugin.getPermissionsManager().has(player, "simpleclans.leader.joinrequests-toggle")) {
-            builder.button(BedrockText.lang(clan.isJoinRequestsEnabled()
-                            ? "bedrock.overview.join-toggle.enabled"
-                            : "bedrock.overview.join-toggle.disabled", player),
-                    BedrockFormIconResolver.ui("textures/ui/refresh_light"));
-            actions.add(() -> runClanCommand(player, "toggle joinrequests"));
-        }
-
-        if (clanPlayer.isLeader() && plugin.getPermissionsManager().has(player, "simpleclans.leader.dynamicwar-toggle")) {
-            builder.button(BedrockText.lang(clan.isDynamicWarEnabled()
-                            ? "bedrock.overview.war-toggle.enabled"
-                            : "bedrock.overview.war-toggle.disabled", player),
-                    BedrockFormIconResolver.ui("textures/ui/icon_sword"));
-            actions.add(() -> runClanCommand(player, "toggle warstart"));
-        }
-
-        if (plugin.getDynamicWarManager().hasActiveWar(clan)
-                && plugin.getPermissionsManager().has(player, "simpleclans.member.dynamicwar")) {
-            builder.button(BedrockText.lang("bedrock.overview.war-join", player),
-                    BedrockFormIconResolver.ui("textures/ui/realms_slot_check"));
-            actions.add(() -> Bukkit.getScheduler().runTask(plugin, () -> player.performCommand("guerra")));
-        }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.member.resign")) {
-            builder.button(BedrockText.lang("bedrock.overview.resign", player),
-                    BedrockFormIconResolver.ui("textures/ui/cancel"));
-            actions.add(() -> confirmAction(player,
-                    BedrockText.lang("bedrock.resign.title", player),
-                    BedrockText.lang("bedrock.resign.content", player, clan.getName()),
-                    () -> runClanCommand(player, "resign"),
-                    () -> openClanOverview(player, frame, clanPlayer)));
-        }
-
-        if (clanPlayer.isLeader()
-                && plugin.getPermissionsManager().has(player, "simpleclans.leader.disband")) {
-            builder.button(BedrockText.lang("bedrock.overview.disband", player),
-                    BedrockFormIconResolver.ui("textures/ui/cancel"));
-            actions.add(() -> confirmAction(player,
-                    BedrockText.lang("bedrock.disband.title", player),
-                    BedrockText.lang("bedrock.disband.content", player, clan.getName()),
-                    () -> disbandClan(player, frame, clan),
-                    () -> openClanOverview(player, frame, clanPlayer)));
-        }
-
-        builder.button(BedrockText.lang("bedrock.gui.back", player),
-                BedrockFormIconResolver.ui("textures/ui/arrow_left"));
-        actions.add(() -> openMyClanMenu(player, frame, clanPlayer));
-
-        builder.validResultHandler(response -> runButton(actions, response.clickedButtonId()));
-        sendForm(player, builder);
+        menu.back(() -> open(frame));
+        menu.send();
     }
 
-    private static void openBankMenu(@NotNull Player player, @NotNull MainFrame frame, @NotNull ClanPlayer clanPlayer) {
-        Clan clan = clanPlayer.getClan();
+    private static void openManageMenu(@NotNull Player player, @NotNull MainFrame frame) {
+        PermissionsManager permissions = plugin.getPermissionsManager();
+        ClanPlayer clanPlayer = plugin.getClanManager().getClanPlayer(player);
+        Clan clan = clanPlayer == null ? null : clanPlayer.getClan();
+        if (clan == null || !clanPlayer.isLeader()) {
+            open(frame);
+            return;
+        }
+        Runnable reopen = () -> openManageMenu(player, frame);
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.manage.title", player, clan.getName()),
+                BedrockText.lang("bedrock.manage.content", player));
+
+        if (permissions.has(player, "simpleclans.leader.joinrequests-toggle")) {
+            menu.button(toggleText(player, "bedrock.manage.join-toggle", clan.isJoinRequestsEnabled()), "toggle",
+                    () -> BedrockForms.runClanCommand(player, "toggle joinrequests", reopen));
+        }
+        if (permissions.has(player, "simpleclans.leader.dynamicwar-toggle")) {
+            menu.button(toggleText(player, "bedrock.manage.war-toggle", clan.isDynamicWarEnabled()), "war-toggle",
+                    () -> BedrockForms.runClanCommand(player, "toggle warstart", reopen));
+        }
+        if (!clan.isVerified() && permissions.has(player, "simpleclans.leader.verify")) {
+            menu.button(BedrockText.button("bedrock.manage.verify", player), "verify",
+                    () -> BedrockForms.runClanCommand(player, "verify", reopen));
+        }
+        if (permissions.has(player, "simpleclans.leader.disband")) {
+            menu.button(BedrockText.button("bedrock.manage.disband", player), "disband",
+                    () -> BedrockForms.confirm(player,
+                            BedrockText.lang("bedrock.disband.title", player),
+                            BedrockText.lang("bedrock.disband.content", player, clan.getName()),
+                            () -> disbandClan(player, frame, clan),
+                            reopen));
+        }
+        menu.back(() -> open(frame));
+        menu.send();
+    }
+
+    private static void openBankMenu(@NotNull Player player, @NotNull MainFrame frame) {
+        PermissionsManager permissions = plugin.getPermissionsManager();
+        ClanPlayer clanPlayer = plugin.getClanManager().getClanPlayer(player);
+        Clan clan = clanPlayer == null ? null : clanPlayer.getClan();
         if (clan == null) {
             open(frame);
             return;
         }
+        Runnable reopen = () -> openBankMenu(player, frame);
+        String ownBalance = permissions.hasEconomy()
+                ? CurrencyFormat.format(permissions.playerGetMoney(player)) : "-";
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.bank.title", player),
+                BedrockText.lang("bedrock.bank.content", player, clan.getBalanceFormatted(), ownBalance,
+                        status(player, clan.isAllowDeposit()), status(player, clan.isAllowWithdraw())));
 
-        List<Runnable> actions = new ArrayList<>();
-        String withdrawStatus = BedrockText.lang(clan.isAllowWithdraw() ? "bedrock.status.allowed" : "bedrock.status.blocked", player);
-        String depositStatus = BedrockText.lang(clan.isAllowDeposit() ? "bedrock.status.allowed" : "bedrock.status.blocked", player);
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.bank.title", player))
-                .content(BedrockText.lang("bedrock.bank.content", player, clan.getBalanceFormatted(), depositStatus, withdrawStatus));
-
-        if (plugin.getPermissionsManager().has(player, RankPermission.BANK_DEPOSIT, false)) {
-            builder.button(BedrockText.lang("bedrock.bank.deposit", player), BedrockFormIconResolver.ui("textures/ui/color_plus"));
-            actions.add(() -> openMoneyForm(player, frame, clanPlayer, "deposit", "bedrock.bank.deposit.title"));
+        if (permissions.has(player, RankPermission.BANK_DEPOSIT, false)) {
+            menu.button(BedrockText.button("bedrock.bank.deposit", player), "deposit",
+                    () -> openAmountMenu(player, frame, true));
         }
-
-        if (plugin.getPermissionsManager().has(player, RankPermission.BANK_WITHDRAW, false)) {
-            builder.button(BedrockText.lang("bedrock.bank.withdraw", player), BedrockFormIconResolver.ui("textures/ui/download_backup"));
-            actions.add(() -> openMoneyForm(player, frame, clanPlayer, "withdraw", "bedrock.bank.withdraw.title"));
+        if (permissions.has(player, RankPermission.BANK_WITHDRAW, false)) {
+            menu.button(BedrockText.button("bedrock.bank.withdraw", player), "withdraw",
+                    () -> openAmountMenu(player, frame, false));
         }
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.leader.deposit-toggle")) {
-            builder.button(BedrockText.lang("bedrock.bank.toggle-deposit", player), BedrockFormIconResolver.ui("textures/ui/refresh_light"));
-            actions.add(() -> runClanCommand(player, "toggle deposit"));
+        if (permissions.has(player, "simpleclans.leader.deposit-toggle")) {
+            menu.button(toggleText(player, "bedrock.bank.toggle-deposit", clan.isAllowDeposit()), "toggle",
+                    () -> BedrockForms.runClanCommand(player, "toggle deposit", reopen));
         }
-        if (plugin.getPermissionsManager().has(player, "simpleclans.leader.withdraw-toggle")) {
-            builder.button(BedrockText.lang("bedrock.bank.toggle-withdraw", player), BedrockFormIconResolver.ui("textures/ui/refresh_light"));
-            actions.add(() -> runClanCommand(player, "toggle withdraw"));
+        if (permissions.has(player, "simpleclans.leader.withdraw-toggle")) {
+            menu.button(toggleText(player, "bedrock.bank.toggle-withdraw", clan.isAllowWithdraw()), "toggle",
+                    () -> BedrockForms.runClanCommand(player, "toggle withdraw", reopen));
         }
-
-        builder.button(BedrockText.lang("bedrock.gui.back", player), BedrockFormIconResolver.ui("textures/ui/arrow_left"));
-        actions.add(() -> openClanOverview(player, frame, clanPlayer));
-
-        builder.validResultHandler(response -> runButton(actions, response.clickedButtonId()));
-        sendForm(player, builder);
+        menu.back(() -> openMyClanMenu(player, frame));
+        menu.send();
     }
 
-    private static void openMoneyForm(@NotNull Player player, @NotNull MainFrame frame, @NotNull ClanPlayer clanPlayer,
-                                      @NotNull String action, @NotNull String titleKey) {
-        CustomForm.Builder builder = CustomForm.builder()
-                .title(BedrockText.lang(titleKey, player))
-                .input(BedrockText.lang("bedrock.bank.amount", player), "100");
+    private static void openAmountMenu(@NotNull Player player, @NotNull MainFrame frame, boolean deposit) {
+        String action = deposit ? "deposit" : "withdraw";
+        Runnable bank = () -> openBankMenu(player, frame);
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang(deposit ? "bedrock.bank.deposit.title" : "bedrock.bank.withdraw.title", player),
+                BedrockText.lang("bedrock.bank.choose-amount", player));
+        for (int amount : new int[]{100, 1000}) {
+            menu.button(BedrockText.buttonColor(CurrencyFormat.format(amount)), action,
+                    () -> BedrockForms.runClanCommand(player, "bank " + action + " " + amount, bank));
+        }
+        menu.button(BedrockText.button("bedrock.bank.all", player), action,
+                () -> BedrockForms.runClanCommand(player, "bank " + action + " all", bank));
+        menu.button(BedrockText.button("bedrock.bank.other", player), "edit",
+                () -> openMoneyForm(player, frame, deposit, "", null));
+        menu.back(bank);
+        menu.send();
+    }
 
-        builder.validResultHandler(response -> {
-            String amount = response.asInput(0).trim().replace(",", ".");
-            if (amount.isEmpty()) {
-                openBankMenu(player, frame, clanPlayer);
+    private static void openMoneyForm(@NotNull Player player, @NotNull MainFrame frame, boolean deposit,
+                                      @NotNull String typed, @Nullable String error) {
+        CustomForm.Builder builder = CustomForm.builder()
+                .title(BedrockText.lang(deposit ? "bedrock.bank.deposit.title" : "bedrock.bank.withdraw.title", player))
+                .label(error == null ? BedrockText.lang("bedrock.bank.amount.help", player) : "§c" + error)
+                .input(BedrockText.lang("bedrock.bank.amount", player), "100", typed);
+
+        builder.validResultHandler(response -> BedrockForms.runSync(() -> {
+            String input = response.asInput(1);
+            String amountText = input == null ? "" : input.trim().replace(",", ".");
+            if (amountText.isEmpty()) {
+                openBankMenu(player, frame);
                 return;
             }
-            runClanCommand(player, "bank " + action + " " + amount);
-        });
-        sendForm(player, builder);
+            String problem = validateAmount(player, deposit, amountText);
+            if (problem != null) {
+                openMoneyForm(player, frame, deposit, amountText, problem);
+                return;
+            }
+            BedrockForms.runClanCommand(player, "bank " + (deposit ? "deposit " : "withdraw ") + amountText,
+                    () -> openBankMenu(player, frame));
+        }));
+        BedrockForms.send(player, builder);
     }
 
-    private static void openFriendlyFireMenu(@NotNull Player player, @NotNull MainFrame frame, @NotNull ClanPlayer clanPlayer) {
-        Clan clan = clanPlayer.getClan();
+    @Nullable
+    private static String validateAmount(@NotNull Player player, boolean deposit, @NotNull String amountText) {
+        double amount;
+        try {
+            amount = Double.parseDouble(amountText);
+        } catch (NumberFormatException ex) {
+            return lang("bedrock.bank.amount.invalid", player);
+        }
+        if (amount <= 0 || Double.isNaN(amount) || Double.isInfinite(amount)) {
+            return lang("bedrock.bank.amount.invalid", player);
+        }
+        ClanPlayer clanPlayer = plugin.getClanManager().getClanPlayer(player);
+        Clan clan = clanPlayer == null ? null : clanPlayer.getClan();
+        if (clan == null) {
+            return lang("bedrock.gui.stale", player);
+        }
+        if (deposit && plugin.getPermissionsManager().hasEconomy()
+                && amount > plugin.getPermissionsManager().playerGetMoney(player)) {
+            return lang("bedrock.bank.amount.not-enough-player", player);
+        }
+        if (!deposit && amount > clan.getBalance()) {
+            return lang("bedrock.bank.amount.not-enough-clan", player, clan.getBalanceFormatted());
+        }
+        return null;
+    }
+
+    private static void openFriendlyFireMenu(@NotNull Player player, @NotNull MainFrame frame) {
+        PermissionsManager permissions = plugin.getPermissionsManager();
+        ClanPlayer clanPlayer = plugin.getClanManager().getClanPlayer(player);
+        Clan clan = clanPlayer == null ? null : clanPlayer.getClan();
         if (clan == null) {
             open(frame);
             return;
         }
+        Runnable reopen = () -> openFriendlyFireMenu(player, frame);
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.ff.title", player),
+                BedrockText.lang("bedrock.ff.content", player));
 
-        List<Runnable> actions = new ArrayList<>();
-        String personalFf = BedrockText.lang(clanPlayer.isFriendlyFire()
-                ? "bedrock.status.allowed"
-                : "bedrock.status.auto", player);
-        String clanFf = BedrockText.lang(clan.isFriendlyFire()
-                ? "bedrock.status.allowed"
-                : "bedrock.status.blocked", player);
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.ff.title", player))
-                .content(BedrockText.lang("bedrock.ff.content", player, personalFf, clanFf));
-
-        if (plugin.getPermissionsManager().has(player, "simpleclans.member.ff")) {
-            builder.button(BedrockText.lang("bedrock.ff.personal", player),
-                    BedrockFormIconResolver.ui("textures/ui/icon_sword"));
-            actions.add(() -> runClanCommand(player, "ff " + (clanPlayer.isFriendlyFire() ? "auto" : "allow")));
+        if (permissions.has(player, "simpleclans.member.ff")) {
+            boolean allowed = clanPlayer.isFriendlyFire();
+            menu.button(toggleText(player, "bedrock.ff.personal", allowed), "ff",
+                    () -> BedrockForms.runClanCommand(player, "ff " + (allowed ? "auto" : "allow"), reopen));
         }
-
-        if (plugin.getPermissionsManager().has(player, RankPermission.FRIENDLYFIRE, false)) {
-            builder.button(BedrockText.lang("bedrock.ff.clan", player),
-                    BedrockFormIconResolver.ui("textures/ui/multiplayer_glyph_color"));
-            actions.add(() -> runClanCommand(player, "clanff " + (clan.isFriendlyFire() ? "block" : "allow")));
+        if (permissions.has(player, RankPermission.FRIENDLYFIRE, false)) {
+            boolean allowed = clan.isFriendlyFire();
+            menu.button(toggleText(player, "bedrock.ff.clan", allowed), "ff",
+                    () -> BedrockForms.runClanCommand(player, "clanff " + (allowed ? "block" : "allow"), reopen));
         }
-
-        builder.button(BedrockText.lang("bedrock.gui.back", player),
-                BedrockFormIconResolver.ui("textures/ui/arrow_left"));
-        actions.add(() -> openClanOverview(player, frame, clanPlayer));
-
-        builder.validResultHandler(response -> runButton(actions, response.clickedButtonId()));
-        sendForm(player, builder);
+        menu.back(() -> openMyClanMenu(player, frame));
+        menu.send();
     }
 
-    private static void toggleClanChat(@NotNull Player player, @NotNull MainFrame frame, @NotNull ClanPlayer clanPlayer) {
-        if (clanPlayer.getChannel() == Channel.CLAN) {
-            clanPlayer.setChannel(Channel.NONE);
+    private static void openHomeActions(@NotNull Player player, @NotNull MainFrame frame) {
+        PermissionsManager permissions = plugin.getPermissionsManager();
+        ClanPlayer clanPlayer = plugin.getClanManager().getClanPlayer(player);
+        Clan clan = clanPlayer == null ? null : clanPlayer.getClan();
+        if (clan == null) {
+            open(frame);
+            return;
+        }
+        boolean canTeleport = permissions.has(player, RankPermission.HOME_TP, false);
+        boolean canSet = permissions.has(player, RankPermission.HOME_SET, false);
+        String content;
+        if (!clan.isVerified()) {
+            content = BedrockText.lang("bedrock.home-actions.not-verified", player);
+        } else if (!canTeleport && !canSet) {
+            content = BedrockText.lang("bedrock.home-actions.no-permission", player);
         } else {
-            clanPlayer.setChannel(Channel.CLAN);
+            content = BedrockText.lang(clan.getHomeLocation() == null
+                    ? "bedrock.home-actions.content.unset" : "bedrock.home-actions.content", player);
         }
-        openClanOverview(player, frame, clanPlayer);
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.home-actions.title", player), content);
+
+        if (clan.isVerified() && canTeleport && clan.getHomeLocation() != null) {
+            menu.button(BedrockText.button("bedrock.home-actions.teleport", player), "home-teleport",
+                    () -> BedrockForms.runClanCommand(player, "home"));
+        }
+        if (clan.isVerified() && canSet) {
+            menu.button(BedrockText.button("bedrock.home-actions.set", player), "home-set",
+                    () -> BedrockForms.runClanCommand(player, "home set", () -> openHomeActions(player, frame)));
+        }
+        menu.back(() -> openMyClanMenu(player, frame));
+        menu.send();
     }
 
-    private static void openHomeActions(@NotNull Player player, @NotNull MainFrame frame, @NotNull ClanPlayer clanPlayer) {
-        List<Runnable> actions = new ArrayList<>();
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.home-actions.title", player))
-                .content(BedrockText.lang("bedrock.home-actions.content", player));
-
-        if (clanPlayer.getClan() != null && clanPlayer.getClan().isVerified()
-                && plugin.getPermissionsManager().has(player, RankPermission.HOME_TP, false)) {
-            builder.button(BedrockText.lang("bedrock.home-actions.teleport", player), BedrockFormIconResolver.ui("textures/ui/realms_slot_check"));
-            actions.add(() -> runClanCommand(player, "home"));
+    private static void openJoinRequests(@NotNull Player player, @NotNull MainFrame frame) {
+        ClanPlayer leader = plugin.getClanManager().getClanPlayer(player);
+        Clan clan = leader == null ? null : leader.getClan();
+        if (clan == null || !leader.isLeader()) {
+            open(frame);
+            return;
         }
-        if (clanPlayer.getClan() != null && clanPlayer.getClan().isVerified()
-                && plugin.getPermissionsManager().has(player, RankPermission.HOME_SET, false)) {
-            builder.button(BedrockText.lang("bedrock.home-actions.set", player), BedrockFormIconResolver.ui("textures/ui/color_plus"));
-            actions.add(() -> runClanCommand(player, "home set"));
+        List<Request> requests = plugin.getRequestManager().getJoinRequestsFor(clan);
+        if (requests.isEmpty()) {
+            open(frame);
+            return;
         }
-        builder.button(BedrockText.lang("bedrock.gui.back", player), BedrockFormIconResolver.ui("textures/ui/arrow_left"));
-        actions.add(() -> open(frame));
-
-        builder.validResultHandler(response -> runButton(actions, response.clickedButtonId()));
-        sendForm(player, builder);
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.join-requests.title", player),
+                BedrockText.lang("bedrock.join-requests.list", player, requests.size()));
+        for (Request request : requests) {
+            String applicant = request.getTarget();
+            ClanPlayer applicantCp = plugin.getClanManager().getAnyClanPlayer(Bukkit.getOfflinePlayer(applicant).getUniqueId());
+            menu.button(BedrockText.button("bedrock.join-requests.button", player, applicant,
+                            applicantCp == null ? "-" : KDRFormat.format(applicantCp.getKDR())),
+                    applicantCp == null ? BedrockFormIconResolver.button("member")
+                            : BedrockFormIconResolver.playerHead(applicantCp.getUniqueId(), applicant),
+                    () -> openJoinRequest(player, frame, request));
+        }
+        menu.back(() -> open(frame));
+        menu.send();
     }
 
-    private static void openCreateClanForm(@NotNull Player player) {
-        CustomForm.Builder builder = CustomForm.builder()
-                .title(BedrockText.lang("bedrock.create.title", player))
-                .label(BedrockText.lang("bedrock.create.price", player, getCreationPrice(player)))
-                .input(BedrockText.lang("bedrock.create.tag", player), "NEX")
-                .input(BedrockText.lang("bedrock.create.name", player), "Nexus");
+    private static void openJoinRequest(@NotNull Player player, @NotNull MainFrame frame, @NotNull Request request) {
+        String applicant = request.getTarget();
+        ClanPlayer applicantCp = plugin.getClanManager().getAnyClanPlayer(Bukkit.getOfflinePlayer(applicant).getUniqueId());
+        String kdr = applicantCp == null ? "-" : KDRFormat.format(applicantCp.getKDR());
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.join-requests.title", player),
+                BedrockText.lang("bedrock.join-requests.content", player, applicant, request.getClan().getName(),
+                        kdr));
+        menu.button(BedrockText.button("bedrock.join-requests.accept", player), "accept",
+                () -> decideJoinRequest(player, frame, applicant, true));
+        menu.button(BedrockText.button("bedrock.join-requests.deny", player), "deny",
+                () -> decideJoinRequest(player, frame, applicant, false));
+        menu.back(() -> openJoinRequests(player, frame));
+        menu.send();
+    }
 
-        builder.validResultHandler(response -> {
-            String tag = response.asInput(1).trim();
-            String name = response.asInput(2).trim();
-            if (tag.isEmpty() || name.isEmpty()) {
-                player.sendMessage(lang("bedrock.create.empty", player));
-                openCreateClanForm(player);
-                return;
-            }
-            runClanCommand(player, "create " + tag.replace(" ", "") + " " + name.replace(" ", "_"));
-        });
-        sendForm(player, builder);
+    private static void decideJoinRequest(@NotNull Player player, @NotNull MainFrame frame, @NotNull String applicant,
+                                          boolean accept) {
+        ClanPlayer leader = plugin.getClanManager().getClanPlayer(player);
+        if (leader == null || !leader.isLeader()) {
+            player.sendMessage(lang("bedrock.gui.stale", player));
+            open(frame);
+            return;
+        }
+        plugin.getRequestManager().decideJoinRequest(leader, applicant, accept);
+        openJoinRequests(player, frame);
     }
 
     private static void openSettingsMenu(@NotNull Player player, @NotNull MainFrame frame) {
-        List<Runnable> actions = new ArrayList<>();
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.settings.title", player))
-                .content(BedrockText.lang("bedrock.settings.content", player));
-
+        BedrockForms.Menu menu = new BedrockForms.Menu(player,
+                BedrockText.lang("bedrock.settings.title", player),
+                BedrockText.lang("bedrock.settings.content", player));
         if (plugin.getSettingsManager().is(LANGUAGE_SELECTOR)) {
-            builder.button(BedrockText.lang("bedrock.settings.language", player),
-                    BedrockFormIconResolver.ui("textures/ui/language_glyph_color"));
-            actions.add(() -> InventoryDrawer.open(new LanguageSelectorFrame(frame, player)));
+            menu.button(BedrockText.button("bedrock.settings.language", player), "language",
+                    () -> BedrockClanScreens.openLanguage(player, () -> openSettingsMenu(player, frame)));
         }
+        if (plugin.getPermissionsManager().has(player, "simpleclans.vip.resetkdr")) {
+            menu.button(BedrockText.button("bedrock.settings.reset-kdr", player), "reset-kdr",
+                    () -> BedrockForms.confirm(player,
+                            BedrockText.lang("bedrock.reset-kdr.title", player),
+                            BedrockText.lang("bedrock.reset-kdr.content", player),
+                            () -> resetKdr(player, frame),
+                            () -> openSettingsMenu(player, frame)));
+        }
+        menu.back(() -> open(frame));
+        menu.send();
+    }
 
-        builder.button(BedrockText.lang("bedrock.gui.back", player),
-                BedrockFormIconResolver.ui("textures/ui/arrow_left"));
-        actions.add(() -> open(frame));
+    private static void resetKdr(@NotNull Player player, @NotNull MainFrame frame) {
+        if (!plugin.getSettingsManager().is(ALLOW_RESET_KDR)) {
+            ChatBlock.sendMessageKey(player, "disabled.command");
+            return;
+        }
+        ClanPlayer clanPlayer = plugin.getClanManager().getCreateClanPlayer(player.getUniqueId());
+        PlayerResetKdrEvent event = new PlayerResetKdrEvent(clanPlayer);
+        Bukkit.getPluginManager().callEvent(event);
+        if (!event.isCancelled() && plugin.getClanManager().purchaseResetKdr(player)) {
+            plugin.getClanManager().resetKdr(clanPlayer);
+            ChatBlock.sendMessageKey(player, "you.have.reseted.your.kdr");
+        }
+        openSettingsMenu(player, frame);
+    }
 
-        builder.validResultHandler(response -> runButton(actions, response.clickedButtonId()));
-        sendForm(player, builder);
+    private static void openCreateClanForm(@NotNull Player player, @NotNull MainFrame frame, @NotNull String tag,
+                                           @NotNull String name, @Nullable String error) {
+        CustomForm.Builder builder = CustomForm.builder()
+                .title(BedrockText.lang("bedrock.create.title", player))
+                .label(error == null ? BedrockText.lang("bedrock.create.price", player, getCreationPrice(player))
+                        : "§c" + error)
+                .input(BedrockText.lang("bedrock.create.tag", player), "NEX", tag)
+                .input(BedrockText.lang("bedrock.create.name", player), "Nexus", name);
+
+        builder.validResultHandler(response -> BedrockForms.runSync(() -> {
+            String newTag = valueOf(response.asInput(1));
+            String newName = valueOf(response.asInput(2));
+            String problem = validateClan(player, newTag, newName);
+            if (problem != null) {
+                openCreateClanForm(player, frame, newTag, newName, problem);
+                return;
+            }
+            // The last argument of the command takes the rest of the line, so the name keeps its spaces
+            BedrockForms.runClanCommand(player, "create " + newTag + " " + newName);
+        }));
+        BedrockForms.send(player, builder);
+    }
+
+    @NotNull
+    private static String valueOf(@Nullable String input) {
+        return input == null ? "" : input.trim();
+    }
+
+    @Nullable
+    private static String validateClan(@NotNull Player player, @NotNull String tag, @NotNull String name) {
+        if (tag.isEmpty() || name.isEmpty()) {
+            return lang("bedrock.create.empty", player);
+        }
+        if (tag.contains(" ")) {
+            return lang("bedrock.create.tag-spaces", player);
+        }
+        Optional<String> tagError = plugin.getTagValidator().validate(player, tag);
+        if (tagError.isPresent()) {
+            return BedrockText.clean(tagError.get());
+        }
+        if (plugin.getClanManager().isClan(ChatUtils.stripColors(tag))) {
+            return lang("clan.with.this.tag.already.exists", player);
+        }
+        if (!plugin.getPermissionsManager().has(player, "simpleclans.mod.bypass")) {
+            SettingsManager settings = plugin.getSettingsManager();
+            int length = ChatUtils.stripColors(name).length();
+            if (length > settings.getInt(CLAN_MAX_LENGTH)) {
+                return lang("your.clan.name.cannot.be.longer.than.characters", player, settings.getInt(CLAN_MAX_LENGTH));
+            }
+            if (length <= settings.getInt(CLAN_MIN_LENGTH)) {
+                return lang("your.clan.name.must.be.longer.than.characters", player, settings.getInt(CLAN_MIN_LENGTH));
+            }
+            if (name.contains("&")) {
+                return lang("your.clan.name.cannot.contain.color.codes", player);
+            }
+        }
+        return null;
     }
 
     @NotNull
@@ -494,60 +556,39 @@ public final class BedrockClanHomeDrawer {
                 : BedrockText.lang("bedrock.home.free", player);
     }
 
-    private static void openApplyClanForm(@NotNull Player player) {
-        List<Clan> clans = plugin.getClanManager().getClans().stream()
-                .filter(clan -> plugin.getRequestManager().isClanJoinRequestAvailable(clan))
-                .sorted(Comparator.comparing(Clan::getName, String.CASE_INSENSITIVE_ORDER))
-                .collect(Collectors.toList());
-        if (clans.isEmpty()) {
-            player.sendMessage(lang("bedrock.apply.none-available", player));
+    /**
+     * "Name: on" plus what a tap does, so the button shows the current state
+     */
+    @NotNull
+    static String toggleText(@NotNull Player player, @NotNull String key, boolean enabled) {
+        return BedrockText.button(key, player, BedrockText.lang(enabled ? "bedrock.toggle.on" : "bedrock.toggle.off", player),
+                BedrockText.lang(enabled ? "bedrock.toggle.tap-off" : "bedrock.toggle.tap-on", player));
+    }
+
+    @NotNull
+    private static String status(@NotNull Player player, boolean allowed) {
+        return BedrockText.lang(allowed ? "bedrock.status.allowed" : "bedrock.status.blocked", player);
+    }
+
+    private static void resign(@NotNull Player player, @NotNull MainFrame frame, @NotNull Clan expectedClan) {
+        ClanPlayer current = plugin.getClanManager().getClanPlayer(player);
+        Clan clan = current == null ? null : current.getClan();
+        if (clan == null || !clan.equals(expectedClan)) {
+            player.sendMessage(lang("bedrock.gui.stale", player));
+            open(frame);
             return;
         }
-
-        List<String> options = clans.stream()
-                .map(clan -> BedrockText.clean(clan.getTag() + " - " + clan.getName()))
-                .collect(Collectors.toList());
-        CustomForm.Builder builder = CustomForm.builder()
-                .title(BedrockText.lang("bedrock.apply.title", player))
-                .dropdown(BedrockText.lang("bedrock.apply.choose", player), options);
-
-        builder.validResultHandler(response -> {
-            int index = response.asDropdown(0);
-            if (index < 0 || index >= clans.size()) {
-                return;
-            }
-            runClanCommand(player, "apply " + clans.get(index).getTag());
-        });
-        sendForm(player, builder);
-    }
-
-    private static void openJoinRequestForm(@NotNull Player player, @NotNull Request request) {
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.lang("bedrock.join-requests.title", player))
-                .content(BedrockText.lang("bedrock.join-requests.content", player, request.getTarget(), request.getClan().getName()))
-                .button(BedrockText.lang("bedrock.join-requests.accept", player))
-                .button(BedrockText.lang("bedrock.join-requests.deny", player));
-
-        builder.validResultHandler(response -> {
-            if (response.clickedButtonId() == 0) {
-                runClanCommand(player, plugin.getSettingsManager().getString(COMMANDS_ACCEPT));
-            } else if (response.clickedButtonId() == 1) {
-                runClanCommand(player, plugin.getSettingsManager().getString(COMMANDS_DENY));
-            }
-        });
-        sendForm(player, builder);
-    }
-
-    private static void runButton(@NotNull List<Runnable> actions, int buttonId) {
-        if (buttonId < 0 || buttonId >= actions.size()) {
+        // Unlike the chat command, the last leader is not turned into a disband: that has its own confirmation
+        if (!clan.isPermanent() && current.isLeader() && clan.getLeaders().size() == 1) {
+            ChatBlock.sendMessageKey(player, "last.leader.cannot.resign.you.must.appoint.another.leader.or.disband.the.clan");
+            openMyClanMenu(player, frame);
             return;
         }
-        Bukkit.getScheduler().runTask(plugin, actions.get(buttonId));
-    }
-
-    private static void runClanCommand(@NotNull Player player, @NotNull String subcommand) {
-        Bukkit.getScheduler().runTask(plugin, () -> player.performCommand(
-                plugin.getSettingsManager().getString(COMMANDS_CLAN) + " " + subcommand));
+        clan.addBb(current.getName(), lang("0.has.resigned", current.getName()));
+        current.addResignTime(clan.getTag());
+        clan.removePlayerFromClan(current.getUniqueId());
+        ChatBlock.sendMessageKey(player, "resign.success");
+        open(frame);
     }
 
     private static void disbandClan(@NotNull Player player, @NotNull MainFrame frame, @NotNull Clan expectedClan) {
@@ -567,42 +608,12 @@ public final class BedrockClanHomeDrawer {
 
         // Multiple leaders use the normal vote flow; a sole leader already confirmed through the Form.
         if (currentClan.getLeaders().size() != 1) {
-            runClanCommand(player, "disband");
+            BedrockForms.runClanCommand(player, "disband");
             return;
         }
 
         String clanName = currentClan.getName();
         currentClan.disband(player, true, false);
         ChatBlock.sendMessageKey(player, "clan.has.been.disbanded", clanName);
-    }
-
-    private static void confirmAction(@NotNull Player player, @NotNull String title, @NotNull String content,
-                                      @NotNull Runnable confirm, @NotNull Runnable cancel) {
-        ModalForm.Builder builder = ModalForm.builder()
-                .title(title)
-                .content(content)
-                .button1(BedrockText.lang("bedrock.confirm.yes", player))
-                .button2(BedrockText.lang("bedrock.confirm.no", player));
-
-        builder.validResultHandler(response -> {
-            if (response.clickedFirst()) {
-                Bukkit.getScheduler().runTask(plugin, confirm);
-                return;
-            }
-            Bukkit.getScheduler().runTask(plugin, cancel);
-        });
-        sendForm(player, builder);
-    }
-
-    private static void sendForm(@NotNull Player player, @NotNull SimpleForm.Builder builder) {
-        FloodgateApi.getInstance().sendForm(player.getUniqueId(), builder);
-    }
-
-    private static void sendForm(@NotNull Player player, @NotNull CustomForm.Builder builder) {
-        FloodgateApi.getInstance().sendForm(player.getUniqueId(), builder);
-    }
-
-    private static void sendForm(@NotNull Player player, @NotNull ModalForm.Builder builder) {
-        FloodgateApi.getInstance().sendForm(player.getUniqueId(), builder);
     }
 }

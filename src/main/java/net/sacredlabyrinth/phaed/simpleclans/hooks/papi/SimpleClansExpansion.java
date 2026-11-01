@@ -8,6 +8,8 @@ import net.sacredlabyrinth.phaed.simpleclans.ClanPlayer;
 import net.sacredlabyrinth.phaed.simpleclans.Helper;
 import net.sacredlabyrinth.phaed.simpleclans.SimpleClans;
 import net.sacredlabyrinth.phaed.simpleclans.managers.ClanManager;
+import net.sacredlabyrinth.phaed.simpleclans.managers.ClanRankingManager;
+import net.sacredlabyrinth.phaed.simpleclans.ranking.ClanScore;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
@@ -24,6 +26,7 @@ import java.util.regex.Pattern;
 public class SimpleClansExpansion extends PlaceholderExpansion implements Relational, Configurable {
 
     private static final Pattern TOP_CLANS_PATTERN = Pattern.compile("(?<strip>^topclans_(?<position>\\d+)_)clan_");
+    private static final Pattern CLAN_RANK_PATTERN = Pattern.compile("^clanrank_(?<position>\\d+)_(?<field>.+)$");
     private static final Pattern TOP_PLAYERS_PATTERN = Pattern.compile("(?<strip>^topplayers_(?<position>\\d+)_)");
     private static final Map<String, PlaceholderResolver> RESOLVERS = new HashMap<>();
     private List<String> placeholders;
@@ -121,6 +124,9 @@ public class SimpleClansExpansion extends PlaceholderExpansion implements Relati
             cp = clanManager.getAnyClanPlayer(player.getUniqueId());
         }
         Clan clan = cp == null ? null : cp.getClan();
+        if (params.startsWith("clanrank_")) {
+            return getClanRankValue(player, cp, clan, params);
+        }
         Matcher matcher = TOP_CLANS_PATTERN.matcher(params);
         if (matcher.find()) {
             int position = Integer.parseInt(matcher.group("position"));
@@ -138,6 +144,51 @@ public class SimpleClansExpansion extends PlaceholderExpansion implements Relati
             params = params.replace(matcher.group("strip"), "");
         }
         return getValue(player, cp, clan, params);
+    }
+
+    /**
+     * {@code clanrank_<position>_<field>} for the clan at that position, {@code clanrank_<field>} for the player's clan.
+     * Fields: score, score_economy, score_combat, score_wars, score_activity, score_age, position and clan_*.
+     */
+    @NotNull
+    private String getClanRankValue(@Nullable OfflinePlayer player, @Nullable ClanPlayer cp, @Nullable Clan clan,
+                                    @NotNull String params) {
+        ClanRankingManager rankingManager = plugin.getClanRankingManager();
+        ClanScore score;
+        String field;
+        Matcher matcher = CLAN_RANK_PATTERN.matcher(params);
+        if (matcher.find()) {
+            score = rankingManager.getScore(Integer.parseInt(matcher.group("position")));
+            clan = rankingManager.getClan(score);
+            field = matcher.group("field");
+        } else {
+            score = rankingManager.getScore(clan);
+            field = params.substring("clanrank_".length());
+        }
+        if (field.startsWith("clan_")) {
+            return clan == null ? "" : getValue(player, cp, clan, field);
+        }
+        if (score == null) {
+            return "";
+        }
+        switch (field) {
+            case "position":
+                return String.valueOf(score.getPosition());
+            case "score":
+                return String.valueOf(score.getTotal());
+            case "score_economy":
+                return String.valueOf(score.getEconomy());
+            case "score_combat":
+                return String.valueOf(score.getCombat());
+            case "score_wars":
+                return String.valueOf(score.getWars());
+            case "score_activity":
+                return String.valueOf(score.getActivity());
+            case "score_age":
+                return String.valueOf(score.getAge());
+            default:
+                return "";
+        }
     }
 
     @Nullable

@@ -330,4 +330,11 @@ public class GeneralCommands extends BaseCommand {
         a.send();
     }
 
+    @Subcommand("%top")
+    @CommandPermission("simpleclans.anyone.top")
+    @Description("{@@command.description.top}")
+    public void top(CommandSender sender) {
+        new ClanRanking(plugin, sender).send();
+    }
+
 }
