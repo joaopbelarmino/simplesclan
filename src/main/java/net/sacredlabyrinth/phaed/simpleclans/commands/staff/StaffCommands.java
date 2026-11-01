@@ -16,6 +16,7 @@ import net.sacredlabyrinth.phaed.simpleclans.managers.SettingsManager;
 import net.sacredlabyrinth.phaed.simpleclans.managers.StorageManager;
 import net.sacredlabyrinth.phaed.simpleclans.ui.InventoryController;
 import net.sacredlabyrinth.phaed.simpleclans.utils.ChatUtils;
+import net.sacredlabyrinth.phaed.simpleclans.ui.bedrock.BedrockFormDrawer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -122,6 +123,9 @@ public class StaffCommands extends BaseCommand {
 
         for (Clan clan : cm.getClans()) {
             permissions.updateClanPermissions(clan);
+        }
+        if (Bukkit.getPluginManager().isPluginEnabled("floodgate")) {
+            BedrockFormDrawer.reloadIcons();
         }
         Bukkit.getPluginManager().callEvent(new ReloadEvent(sender));
 

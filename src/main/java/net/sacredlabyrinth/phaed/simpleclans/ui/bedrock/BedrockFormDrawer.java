@@ -5,9 +5,7 @@ import net.sacredlabyrinth.phaed.simpleclans.ui.InventoryController;
 import net.sacredlabyrinth.phaed.simpleclans.ui.InventoryDrawer;
 import net.sacredlabyrinth.phaed.simpleclans.ui.SCComponent;
 import net.sacredlabyrinth.phaed.simpleclans.ui.SCFrame;
-import net.sacredlabyrinth.phaed.simpleclans.ui.frames.ConfirmationFrame;
-import net.sacredlabyrinth.phaed.simpleclans.ui.frames.MainFrame;
-import net.sacredlabyrinth.phaed.simpleclans.ui.frames.RosterFrame;
+import net.sacredlabyrinth.phaed.simpleclans.ui.frames.*;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
@@ -17,22 +15,25 @@ import org.geysermc.cumulus.form.SimpleForm;
 import org.geysermc.cumulus.util.FormImage;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
+/**
+ * Shows the Java inventories as Bedrock forms. The main screens have their own forms; the other inventories are
+ * converted: clickable items become buttons and information items go to the form text.
+ */
 public final class BedrockFormDrawer {
 
     private static final SimpleClans plugin = SimpleClans.getInstance();
+    private static final int MAX_LORE_LINES = 2;
 
     private BedrockFormDrawer() {
     }
 
     public static boolean isBedrockPlayer(@NotNull Player player) {
+        if (!Bukkit.getPluginManager().isPluginEnabled("floodgate")) {
+            return false;
+        }
         try {
             return FloodgateApi.getInstance().isFloodgatePlayer(player.getUniqueId());
         } catch (NoClassDefFoundError | IllegalStateException ex) {
@@ -40,13 +41,42 @@ public final class BedrockFormDrawer {
         }
     }
 
+    /**
+     * Reloads bedrock-icons.yml
+     */
+    public static void reloadIcons() {
+        BedrockFormIconResolver.reload();
+    }
+
     public static void open(@NotNull SCFrame frame) {
+        Player viewer = frame.getViewer();
+        Runnable back = () -> {
+            if (frame.getParent() != null) {
+                InventoryDrawer.open(frame.getParent());
+            }
+        };
         if (frame instanceof MainFrame) {
-            Bukkit.getScheduler().runTask(plugin, () -> BedrockClanHomeDrawer.open((MainFrame) frame));
+            BedrockForms.runSync(() -> BedrockClanHomeDrawer.open((MainFrame) frame));
             return;
         }
         if (frame instanceof RosterFrame) {
-            Bukkit.getScheduler().runTask(plugin, () -> BedrockRosterDrawer.open((RosterFrame) frame));
+            BedrockForms.runSync(() -> BedrockRosterDrawer.open((RosterFrame) frame));
+            return;
+        }
+        if (frame instanceof InviteFrame) {
+            BedrockForms.runSync(() -> BedrockClanScreens.openInvite(viewer, back));
+            return;
+        }
+        if (frame instanceof LanguageSelectorFrame) {
+            BedrockForms.runSync(() -> BedrockClanScreens.openLanguage(viewer, back));
+            return;
+        }
+        if (frame instanceof RelationsFrame) {
+            BedrockForms.runSync(() -> BedrockClanScreens.openRelations(viewer, ((RelationsFrame) frame).getClan(), back));
+            return;
+        }
+        if (frame instanceof ClanRankingFrame) {
+            BedrockForms.runSync(() -> BedrockClanScreens.openRanking(viewer, back));
             return;
         }
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -54,7 +84,7 @@ public final class BedrockFormDrawer {
                 return;
             }
             Bukkit.getScheduler().runTask(plugin, () -> {
-                if (!frame.getViewer().isOnline()) {
+                if (!viewer.isOnline()) {
                     return;
                 }
                 if (frame instanceof ConfirmationFrame) {
@@ -68,28 +98,27 @@ public final class BedrockFormDrawer {
 
     private static void sendSimpleFrame(@NotNull SCFrame frame) {
         Player viewer = frame.getViewer();
-        List<SCComponent> components = getSortedComponents(frame);
         List<BedrockAction> actions = new ArrayList<>();
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(BedrockText.clean(frame.getTitle()))
-                .content(BedrockText.lang("bedrock.gui.content", viewer));
+        StringBuilder content = new StringBuilder();
+        SimpleForm.Builder builder = SimpleForm.builder().title(BedrockText.color(frame.getTitle()));
 
-        for (SCComponent component : components) {
+        for (SCComponent component : getSortedComponents(frame)) {
             List<ClickType> clicks = getSortedClicks(component.getAvailableClicks());
             if (clicks.isEmpty()) {
+                appendInfo(content, component, viewer);
                 continue;
             }
-            String buttonText = getButtonText(component);
             FormImage image = BedrockFormIconResolver.getIcon(component.getItem());
-            builder.button(buttonText, image);
+            String text = getButtonText(component, viewer);
+            if (image == null) {
+                builder.button(text);
+            } else {
+                builder.button(text, image);
+            }
             actions.add(new BedrockAction(component.getSlot(), clicks.get(0)));
         }
+        builder.content(content.length() == 0 ? BedrockText.lang("bedrock.gui.content", viewer) : content.toString().trim());
 
-        builder.closedOrInvalidResultHandler(() -> {
-            if (frame.getParent() != null) {
-                Bukkit.getScheduler().runTask(plugin, () -> InventoryDrawer.open(frame.getParent()));
-            }
-        });
         builder.validResultHandler(response -> {
             int buttonId = response.clickedButtonId();
             if (buttonId < 0 || buttonId >= actions.size()) {
@@ -103,48 +132,36 @@ public final class BedrockFormDrawer {
             }
             List<ClickType> clicks = getSortedClicks(component.getAvailableClicks());
             if (clicks.size() > 1) {
-                Bukkit.getScheduler().runTask(plugin, () -> sendActionPicker(frame, component));
+                BedrockForms.runSync(() -> sendActionPicker(frame, component));
                 return;
             }
             runFreshAction(frame, action);
         });
 
-        sendForm(viewer, builder);
+        BedrockForms.send(viewer, builder);
     }
 
     private static void sendActionPicker(@NotNull SCFrame frame, @NotNull SCComponent component) {
         Player viewer = frame.getViewer();
         List<ClickType> clicks = getSortedClicks(component.getAvailableClicks());
-        List<BedrockAction> actions = new ArrayList<>();
-        SimpleForm.Builder builder = SimpleForm.builder()
-                .title(getButtonText(component))
-                .content(BedrockText.lang("bedrock.gui.choose-action", viewer));
-
+        BedrockForms.Menu menu = new BedrockForms.Menu(viewer, getTitleText(component),
+                BedrockText.lang("bedrock.gui.choose-action", viewer));
         for (ClickType click : clicks) {
-            builder.button(getClickName(click, viewer));
-            actions.add(new BedrockAction(component.getSlot(), click));
+            menu.button(getClickName(click, viewer), (FormImage) null,
+                    () -> runFreshAction(frame, new BedrockAction(component.getSlot(), click)));
         }
-
-        builder.button(BedrockText.lang("bedrock.gui.back", viewer));
-        builder.closedOrInvalidResultHandler(() -> Bukkit.getScheduler().runTask(plugin, () -> InventoryDrawer.open(frame)));
-        builder.validResultHandler(response -> {
-            int buttonId = response.clickedButtonId();
-            if (buttonId == actions.size()) {
-                Bukkit.getScheduler().runTask(plugin, () -> InventoryDrawer.open(frame));
-                return;
-            }
-            if (buttonId < 0 || buttonId >= actions.size()) {
-                return;
-            }
-            runFreshAction(frame, actions.get(buttonId));
-        });
-
-        sendForm(viewer, builder);
+        menu.back(() -> InventoryDrawer.open(frame));
+        menu.send();
     }
 
     private static void sendConfirmationForm(@NotNull SCFrame frame) {
         Player viewer = frame.getViewer();
-        List<SCComponent> components = getSortedComponents(frame);
+        List<SCComponent> components = new ArrayList<>();
+        for (SCComponent component : getSortedComponents(frame)) {
+            if (!component.getAvailableClicks().isEmpty()) {
+                components.add(component);
+            }
+        }
         if (components.size() < 2) {
             sendSimpleFrame(frame);
             return;
@@ -153,22 +170,21 @@ public final class BedrockFormDrawer {
         SCComponent confirm = components.get(0);
         SCComponent cancel = components.get(1);
         ModalForm.Builder builder = ModalForm.builder()
-                .title(BedrockText.clean(frame.getTitle()))
+                .title(BedrockText.color(frame.getTitle()))
                 .content(BedrockText.lang("bedrock.gui.confirm-content", viewer))
-                .button1(getButtonText(confirm))
-                .button2(getButtonText(cancel));
+                .button1(getTitleText(confirm))
+                .button2(getTitleText(cancel));
 
-        builder.closedOrInvalidResultHandler(() -> Bukkit.getScheduler().runTask(plugin, () -> InventoryDrawer.open(frame.getParent())));
         builder.validResultHandler(response -> {
             SCComponent selected = response.clickedFirst() ? confirm : cancel;
             runFreshAction(frame, new BedrockAction(selected.getSlot(), ClickType.LEFT));
         });
 
-        sendForm(viewer, builder);
+        BedrockForms.send(viewer, builder);
     }
 
     private static void runFreshAction(@NotNull SCFrame frame, @NotNull BedrockAction action) {
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        BedrockForms.runSync(() -> {
             Player viewer = frame.getViewer();
             if (!viewer.isOnline()) {
                 return;
@@ -188,22 +204,8 @@ public final class BedrockFormDrawer {
 
     private static void showStaleFrameError(@NotNull SCFrame frame) {
         Player viewer = frame.getViewer();
-        viewer.sendMessage(SimpleClans.lang("bedrock.gui.stale", viewer));
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            if (frame.getParent() != null) {
-                InventoryDrawer.open(frame.getParent());
-            } else {
-                InventoryDrawer.open(frame);
-            }
-        });
-    }
-
-    private static void sendForm(@NotNull Player player, @NotNull Object builder) {
-        if (builder instanceof SimpleForm.Builder) {
-            FloodgateApi.getInstance().sendForm(player.getUniqueId(), (SimpleForm.Builder) builder);
-            return;
-        }
-        FloodgateApi.getInstance().sendForm(player.getUniqueId(), (ModalForm.Builder) builder);
+        viewer.sendMessage(BedrockText.lang("bedrock.gui.stale", viewer));
+        BedrockForms.runSync(() -> InventoryDrawer.open(frame.getParent() != null ? frame.getParent() : frame));
     }
 
     @NotNull
@@ -239,37 +241,86 @@ public final class BedrockFormDrawer {
         }
     }
 
-    @NotNull
-    private static String getButtonText(@NotNull SCComponent component) {
-        ItemMeta meta = component.getItemMeta();
-        StringBuilder text = new StringBuilder();
-        if (meta != null && meta.hasDisplayName()) {
-            text.append(BedrockText.clean(meta.getDisplayName()));
-        } else {
-            text.append(BedrockText.clean(component.getItem().getType().name()));
+    /**
+     * Items without a click (stats, legends) are written in the form text instead of disappearing
+     */
+    private static void appendInfo(@NotNull StringBuilder content, @NotNull SCComponent component,
+                                   @NotNull Player viewer) {
+        String title = getTitleText(component);
+        if (BedrockText.clean(title).trim().isEmpty()) {
+            return;
         }
-        if (meta != null && meta.hasLore()) {
-            List<String> lore = meta.getLore() == null ? Collections.emptyList() : meta.getLore();
-            for (String line : lore) {
-                text.append("\n").append(BedrockText.clean(line));
-            }
+        content.append("§l").append(title).append("§r\n");
+        for (String line : getLore(component, viewer, Integer.MAX_VALUE)) {
+            content.append(BedrockText.color(line)).append("§r\n");
+        }
+        content.append('\n');
+    }
+
+    @NotNull
+    private static String getTitleText(@NotNull SCComponent component) {
+        ItemMeta meta = component.getItemMeta();
+        if (meta != null && meta.hasDisplayName()) {
+            return BedrockText.color(meta.getDisplayName());
+        }
+        return BedrockText.clean(component.getItem().getType().name());
+    }
+
+    /**
+     * The item name plus a short lore, without the click hints that make no sense on Bedrock
+     */
+    @NotNull
+    private static String getButtonText(@NotNull SCComponent component, @NotNull Player viewer) {
+        StringBuilder text = new StringBuilder(BedrockText.buttonColor(getTitleText(component)));
+        for (String line : getLore(component, viewer, MAX_LORE_LINES)) {
+            text.append("§r\n").append(BedrockText.buttonColor(line));
         }
         return text.toString();
+    }
+
+    @NotNull
+    private static List<String> getLore(@NotNull SCComponent component, @NotNull Player viewer, int max) {
+        ItemMeta meta = component.getItemMeta();
+        if (meta == null || !meta.hasLore() || meta.getLore() == null) {
+            return Collections.emptyList();
+        }
+        String[] hints = SimpleClans.lang("bedrock.gui.click-hint-words", viewer).toLowerCase(Locale.ROOT).split("\\|");
+        List<String> lines = new ArrayList<>();
+        for (String line : meta.getLore()) {
+            String clean = BedrockText.clean(line).trim();
+            if (clean.isEmpty() || isClickHint(clean.toLowerCase(Locale.ROOT), hints)) {
+                continue;
+            }
+            lines.add(line);
+            if (lines.size() >= max) {
+                break;
+            }
+        }
+        return lines;
+    }
+
+    private static boolean isClickHint(@NotNull String line, @NotNull String[] hints) {
+        for (String hint : hints) {
+            if (!hint.trim().isEmpty() && line.contains(hint.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @NotNull
     private static String getClickName(@NotNull ClickType clickType, @NotNull Player player) {
         switch (clickType) {
             case LEFT:
-                return BedrockText.lang("bedrock.gui.action.left", player);
+                return BedrockText.button("bedrock.gui.action.left", player);
             case RIGHT:
-                return BedrockText.lang("bedrock.gui.action.right", player);
+                return BedrockText.button("bedrock.gui.action.right", player);
             case SHIFT_LEFT:
-                return BedrockText.lang("bedrock.gui.action.shift-left", player);
+                return BedrockText.button("bedrock.gui.action.shift-left", player);
             case SHIFT_RIGHT:
-                return BedrockText.lang("bedrock.gui.action.shift-right", player);
+                return BedrockText.button("bedrock.gui.action.shift-right", player);
             case DROP:
-                return BedrockText.lang("bedrock.gui.action.drop", player);
+                return BedrockText.button("bedrock.gui.action.drop", player);
             default:
                 return BedrockText.clean(clickType.name());
         }

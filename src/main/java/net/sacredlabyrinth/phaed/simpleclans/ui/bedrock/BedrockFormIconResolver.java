@@ -1,58 +1,115 @@
 package net.sacredlabyrinth.phaed.simpleclans.ui.bedrock;
 
+import net.sacredlabyrinth.phaed.simpleclans.SimpleClans;
 import org.bukkit.Material;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
 import org.geysermc.cumulus.util.FormImage;
+import org.geysermc.floodgate.api.FloodgateApi;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.HashMap;
+import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
-import java.util.Map;
+import java.util.UUID;
+import java.util.logging.Level;
 
+/**
+ * Icons of the Bedrock forms, read from bedrock-icons.yml so they can be changed without a new build
+ */
 final class BedrockFormIconResolver {
 
-    private static final Map<String, String> ICONS = new HashMap<>();
-
-    static {
-        ICONS.put("BOOK", "textures/items/book_normal");
-        ICONS.put("PAINTING", "textures/items/painting");
-        ICONS.put("ANVIL", "textures/blocks/anvil_top_damaged_0");
-        ICONS.put("GOLD_INGOT", "textures/items/gold_ingot");
-        ICONS.put("DIAMOND", "textures/items/diamond");
-        ICONS.put("EMERALD", "textures/items/emerald");
-        ICONS.put("MAP", "textures/items/map_empty");
-        ICONS.put("LIME_WOOL", "textures/blocks/wool_colored_lime");
-        ICONS.put("RED_WOOL", "textures/blocks/wool_colored_red");
-        ICONS.put("WHITE_WOOL", "textures/blocks/wool_colored_white");
-        ICONS.put("PURPLE_BANNER", "textures/items/banner_base");
-        ICONS.put("CYAN_BANNER", "textures/items/banner_base");
-        ICONS.put("RED_BANNER", "textures/items/banner_base");
-        ICONS.put("PLAYER_HEAD", "textures/items/skull_steve");
-        ICONS.put("SKELETON_SKULL", "textures/items/skull_skeleton");
-        ICONS.put("COMMAND_BLOCK", "textures/blocks/command_block");
-        ICONS.put("LEVER", "textures/blocks/lever");
-    }
+    private static final String FILE_NAME = "bedrock-icons.yml";
+    private static final String STEVE = "textures/ui/icon_steve";
+    private static YamlConfiguration config;
 
     private BedrockFormIconResolver() {
+    }
+
+    /**
+     * Reloads bedrock-icons.yml on the next icon lookup
+     */
+    static void reload() {
+        config = null;
+    }
+
+    /**
+     * @param key a key of the buttons section, like "war-join"
+     */
+    @Nullable
+    static FormImage button(@NotNull String key) {
+        return image(getConfig().getString("buttons." + key));
     }
 
     @Nullable
     static FormImage getIcon(@NotNull ItemStack itemStack) {
         Material material = itemStack.getType();
-        String path = ICONS.get(material.name());
+        String path = getConfig().getString("items." + material.name());
         if (path == null) {
             path = fallbackItemPath(material);
         }
-        if (path == null) {
+        return image(path);
+    }
+
+    /**
+     * The face of the player, from the URL in player-head-url. Bedrock players have no Java skin, so they get Steve.
+     */
+    @Nullable
+    static FormImage playerHead(@NotNull UUID uuid, @NotNull String name) {
+        String url = getConfig().getString("player-head-url", "");
+        if (url == null || url.isEmpty() || isFloodgateId(uuid)) {
+            return image(getConfig().getString("buttons.member", STEVE));
+        }
+        return image(url.replace("{uuid}", uuid.toString().replace("-", "")).replace("{name}", name));
+    }
+
+    private static boolean isFloodgateId(@NotNull UUID uuid) {
+        try {
+            return FloodgateApi.getInstance().isFloodgateId(uuid);
+        } catch (NoClassDefFoundError | IllegalStateException ex) {
+            return uuid.getMostSignificantBits() == 0;
+        }
+    }
+
+    @Nullable
+    private static FormImage image(@Nullable String value) {
+        if (value == null || value.isEmpty()) {
             return null;
         }
-        return FormImage.of(FormImage.Type.PATH, path);
+        boolean url = value.startsWith("http://") || value.startsWith("https://");
+        return FormImage.of(url ? FormImage.Type.URL : FormImage.Type.PATH, value);
     }
 
     @NotNull
-    static FormImage ui(@NotNull String path) {
-        return FormImage.of(FormImage.Type.PATH, path);
+    private static YamlConfiguration getConfig() {
+        YamlConfiguration current = config;
+        if (current != null) {
+            return current;
+        }
+        SimpleClans plugin = SimpleClans.getInstance();
+        File file = new File(plugin.getDataFolder(), FILE_NAME);
+        try {
+            if (!file.exists()) {
+                plugin.saveResource(FILE_NAME, false);
+            }
+            current = YamlConfiguration.loadConfiguration(file);
+            InputStream stream = plugin.getResource(FILE_NAME);
+            if (stream != null) {
+                try (Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+                    // Keys missing from an older file still get their default icon
+                    current.setDefaults(YamlConfiguration.loadConfiguration(reader));
+                }
+            }
+        } catch (Exception ex) {
+            plugin.getLogger().log(Level.WARNING, "Could not load " + FILE_NAME, ex);
+            current = new YamlConfiguration();
+        }
+        config = current;
+        return current;
     }
 
     @Nullable
